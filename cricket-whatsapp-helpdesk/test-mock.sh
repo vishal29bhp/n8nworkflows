@@ -55,9 +55,13 @@ if [ $# -ge 2 ]; then
   exit 0
 fi
 
-send "919800000001" "Priya"  "When does Royal Strikers play their first match?"
-send "919800000002" "Rahul"  "My son Aarav A1 is playing, which team is he in and when is his next game?"
-send "919800000003" "Sneha"  "Where and when is the final?"
-send "919800000004" "Imran"  "How many overs is each match?"
-send "919800000005" "Kavita" "Is there any match on 3 Nov?"
-send "919800000006" "Arjun"  "What is the prize money?"
+# A few questions from each phase (see sample-questions.md for the full list).
+# Run the Tournament Simulator up to 19 Oct (or import tournament-demo-data.xlsx) so results exist.
+send "919800000001" "Priya"  "When and where is Thunder Kings' next match?"
+send "919800000002" "Rahul"  "Which team is Kabir A6 in and how many runs has he scored so far?"
+send "919800000003" "Sneha"  "Show me the points table."
+send "919800000004" "Imran"  "Who won yesterday's matches?"
+send "919800000005" "Kavita" "Who is the top run scorer and who has the most wickets?"
+send "919800000006" "Arjun"  "Who was Player of the Match in match 2?"
+send "919800000007" "Meera"  "How do teams qualify for the semi-finals?"
+send "919800000008" "Sanjay" "What is the prize money?"

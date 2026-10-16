@@ -1,0 +1,462 @@
+{
+  "name": "Junior Champions T20 Cup 2026 - Tournament Simulator",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Every Night 9 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 21
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "t2",
+      "name": "Run Manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s0",
+      "name": "Simulation Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "u1",
+              "name": "simulateUpTo",
+              "value": "={{ $now.toFormat('dd LLL yyyy') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "r1",
+      "name": "Read Fixtures",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Fixtures",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "r2",
+      "name": "Read Squads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Squads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "r3",
+      "name": "Read Results",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Results",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0",
+      "name": "Simulate Matches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Plays every unplayed match dated on or before \"simulateUpTo\" (set in Simulation Settings).\n// Scores and player stats are random but realistic for junior T20. Semi-final and final teams\n// are filled in from the points table / semi-final winners once those are known.\n// Matches that already have a row in Results are never replayed, so it is safe to run again.\nfunction simulateTournament({ fixtures, squads, results, upTo, rng = Math.random, parseDate }) {\n  const has = v => v !== undefined && v !== null && String(v).trim() !== '';\n  const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };\n  const toBalls = o => { const [a, b] = String(o ?? '0').split('.'); return num(a) * 6 + num(b || 0); };\n  const ov = b => (b % 6 ? `${Math.floor(b / 6)}.${b % 6}` : String(b / 6));\n  const rint = (a, b) => a + Math.floor(rng() * (b - a + 1));\n  const split = (total, n) => {\n    const w = Array.from({ length: n }, () => rng() ** 1.6 + 0.01); const s = w.reduce((x, y) => x + y, 0);\n    const out = w.map(x => Math.floor(total * x / s)); out[0] += total - out.reduce((x, y) => x + y, 0); return out;\n  };\n\n  const squadOf = Object.fromEntries(squads.map(s => [s['Team'], String(s['Players'] || '').split(',').map(p => p.trim()).filter(Boolean)]));\n  const groupOf = Object.fromEntries(squads.map(s => [s['Team'], String(s['Group'] || '')]));\n  const fx = fixtures.filter(f => has(f['Match No'])).map(f => ({ ...f }));\n  const done = new Map(results.filter(r => has(r['Match No']) && (has(r['Winner']) || has(r['Result']))).map(r => [String(r['Match No']), r]));\n  const isLeague = f => /league/i.test(f['Stage'] || 'League');\n\n  const standings = () => {\n    const t = {};\n    for (const s of squads) t[s['Team']] = { team: s['Team'], group: groupOf[s['Team']], pts: 0, w: 0, rf: 0, bf: 0, ra: 0, bb: 0 };\n    for (const f of fx.filter(isLeague)) {\n      const r = done.get(String(f['Match No'])); if (!r) continue;\n      const A = t[f['Team A']], B = t[f['Team B']]; if (!A || !B) continue;\n      const res = String(r['Result'] || '').toLowerCase();\n      if (res.includes('no result') || res.includes('abandon')) { A.pts++; B.pts++; continue; }\n      if (res.includes('tie')) { A.pts++; B.pts++; }\n      else if (r['Winner'] === f['Team A']) { A.pts += 2; A.w++; } else { B.pts += 2; B.w++; }\n      const ab = num(r['Team A Wickets']) >= 10 ? 120 : toBalls(r['Team A Overs']);\n      const bb = num(r['Team B Wickets']) >= 10 ? 120 : toBalls(r['Team B Overs']);\n      A.rf += num(r['Team A Runs']); A.bf += ab; A.ra += num(r['Team B Runs']); A.bb += bb;\n      B.rf += num(r['Team B Runs']); B.bf += bb; B.ra += num(r['Team A Runs']); B.bb += ab;\n    }\n    const nrr = x => (x.bf && x.bb ? x.rf / (x.bf / 6) - x.ra / (x.bb / 6) : 0);\n    const by = {};\n    for (const x of Object.values(t)) (by[x.group] ??= []).push(x);\n    for (const g in by) by[g].sort((x, y) => y.pts - x.pts || nrr(y) - nrr(x) || y.w - x.w);\n    return by;\n  };\n\n  // Fill knockout placeholders like \"Group A Winner\", \"Group B Runner-up\", \"Winner SF1\"\n  const resolve = name => {\n    let m = /^group\\s+(\\w+)\\s+(winner|runner-?up)$/i.exec(String(name).trim());\n    if (m) {\n      if (fx.some(f => isLeague(f) && !done.has(String(f['Match No'])))) return null;\n      const g = standings()[m[1].toUpperCase()] || []; return (g[/winner/i.test(m[2]) ? 0 : 1] || {}).team || null;\n    }\n    m = /^winner\\s+sf\\s*(\\d)$/i.exec(String(name).trim());\n    if (m) {\n      const sf = fx.find(f => new RegExp(`semi\\\\s*final\\\\s*${m[1]}`, 'i').test(f['Stage'] || ''));\n      const r = sf && done.get(String(sf['Match No'])); return r ? r['Winner'] : null;\n    }\n    return squadOf[name] ? name : null;\n  };\n\n  const innings = (no, bat, bowl, runs, wkts, balls, out) => {\n    const batters = squadOf[bat], bowlers = squadOf[bowl].slice(-5);\n    const nbat = Math.min(batters.length, wkts + 2);\n    // batting: runs split across batters, balls follow a realistic strike rate (90-170)\n    const br = split(Math.max(0, runs - rint(4, 12)), nbat);\n    batters.slice(0, nbat).forEach((p, i) => {\n      const r = Math.max(0, br[i]), six = Math.floor(r / 18), four = Math.floor((r - six * 6) / 9);\n      const bl = Math.max(1, Math.round(r / (0.9 + rng() * 0.8)) || rint(1, 4));\n      add(out, no, p, bat, { Runs: r, Balls: bl, Fours: four, Sixes: six });\n    });\n    // bowling: max 4 overs each, runs conceded roughly by balls bowled, wickets dealt one at a time\n    const per = [24, 24, 24, 24, 24]; let left = 120 - balls, j = 4;\n    while (left > 0) { const tk = Math.min(left, per[j]); per[j] -= tk; left -= tk; j--; }\n    const wt = per.map(b => b * (0.6 + rng() * 0.8)), wsum = wt.reduce((x, y) => x + y, 0);\n    const conc = wt.map(x => Math.round(runs * x / wsum)); conc[0] += runs - conc.reduce((x, y) => x + y, 0);\n    const wk = [0, 0, 0, 0, 0];\n    for (let i = 0; i < Math.min(wkts, 9 + (wkts > 9)); i++) { let k; do { k = rint(0, 4); } while (!per[k]); wk[k]++; }\n    bowlers.forEach((p, i) => { if (per[i]) add(out, no, p, bowl, { 'Overs Bowled': ov(per[i]), 'Runs Conceded': Math.max(0, conc[i]), Wickets: wk[i] }); });\n    for (let i = 0, n = Math.min(wkts, rint(2, 5)); i < n; i++) add(out, no, squadOf[bowl][rint(0, squadOf[bowl].length - 1)], bowl, { Catches: 1 }, true);\n  };\n  const add = (out, no, player, team, vals, sum) => {\n    const k = `${no}|${player}`;\n    const row = out.get(k) || { 'Match No': no, Player: player, Team: team, Runs: '', Balls: '', Fours: '', Sixes: '', 'Overs Bowled': '', 'Runs Conceded': '', Wickets: '', Catches: '' };\n    for (const [c, v] of Object.entries(vals)) row[c] = sum ? num(row[c]) + v : v;\n    out.set(k, row);\n  };\n\n  const newResults = [], newStats = [], fixtureUpdates = [], log = [];\n  const due = fx.filter(f => !done.has(String(f['Match No'])) && parseDate(f['Date']) <= upTo)\n                .sort((x, y) => parseDate(x['Date']) - parseDate(y['Date']) || num(x['Match No']) - num(y['Match No']));\n  for (const f of due) {\n    const no = f['Match No'];\n    const a = resolve(f['Team A']), b = resolve(f['Team B']);\n    if (!a || !b) { log.push(`Match ${no}: teams not decided yet (${f['Team A']} vs ${f['Team B']}), skipped`); continue; }\n    if (a !== f['Team A'] || b !== f['Team B']) {\n      f['Team A'] = a; f['Team B'] = b;\n      fixtureUpdates.push({ 'Match No': no, 'Team A': a, 'Team B': b });\n    }\n    const first = rng() < 0.5 ? a : b, second = first === a ? b : a;\n    const r1 = rint(125, 195), w1 = rint(3, 9);\n    let r2, w2, b2, winner;\n    const roll = rng();\n    if (roll < 0.02) { r2 = r1; w2 = rint(5, 9); b2 = 120; winner = ''; }          // rare tie\n    else if (roll < 0.51) { r2 = r1 + rint(1, 6); w2 = rint(2, 8); b2 = rint(96, 119); winner = second; }\n    else { w2 = rng() < 0.4 ? 10 : rint(6, 9); r2 = r1 - rint(3, 45); b2 = w2 === 10 ? rint(100, 119) : 120; winner = first; }\n    if (!isLeague(f) && !winner) winner = rng() < 0.5 ? a : b; // knockout tie decided by a Super Over\n    const sc = { [first]: [r1, w1, 120], [second]: [r2, w2, b2] };\n    const out = new Map();\n    innings(no, first, second, r1, w1, 120, out);\n    innings(no, second, first, r2, w2, b2, out);\n    const rows = [...out.values()];\n    const pomPool = rows.filter(x => x.Team === (winner || first));\n    const pom = pomPool.sort((x, y) => (num(y.Runs) + 20 * num(y.Wickets)) - (num(x.Runs) + 20 * num(x.Wickets)))[0].Player;\n    const tie = !winner || (r1 === r2);\n    const res = {\n      'Match No': no, 'Batted First': first,\n      'Team A Runs': sc[a][0], 'Team A Wickets': sc[a][1], 'Team A Overs': ov(sc[a][2]),\n      'Team B Runs': sc[b][0], 'Team B Wickets': sc[b][1], 'Team B Overs': ov(sc[b][2]),\n      Result: tie ? (isLeague(f) ? 'Tie' : 'Tie (won Super Over)') : 'Normal',\n      Winner: winner, 'Player of the Match': pom,\n    };\n    done.set(String(no), res);\n    newResults.push(res); newStats.push(...rows);\n    log.push(`Match ${no} (${f['Date']}, ${f['Stage'] || 'League'}): ${a} ${sc[a][0]}/${sc[a][1]} vs ${b} ${sc[b][0]}/${sc[b][1]} -> ${winner || 'tie'}`);\n  }\n  return { newResults, newStats, fixtureUpdates, log };\n}\n\nconst settings = $('Simulation Settings').first().json;\nconst rows = name => $(name).all().map(i => i.json || {}).filter(r => Object.keys(r).length);\nconst parseDate = s => {\n  const str = String(s ?? '').trim();\n  let d = DateTime.fromFormat(str, 'dd LLL yyyy');\n  if (!d.isValid) d = DateTime.fromISO(str);\n  if (!d.isValid) d = DateTime.fromJSDate(new Date(str));\n  return d.isValid ? d.toMillis() : Infinity;\n};\nconst out = simulateTournament({\n  fixtures: rows('Read Fixtures'), squads: rows('Read Squads'), results: rows('Read Results'),\n  upTo: parseDate(settings.simulateUpTo), parseDate,\n});\nreturn [{ json: { simulatedUpTo: settings.simulateUpTo, matchesPlayed: out.newResults.length, log: out.log, ...out } }];"
+      }
+    },
+    {
+      "id": "c1",
+      "name": "Results Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.first().json.newResults.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "c2",
+      "name": "Player Stats Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.first().json.newStats.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "c3",
+      "name": "Knockout Fixture Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Semi-final / final rows whose placeholder teams were just decided\nreturn $input.first().json.fixtureUpdates.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "w1",
+      "name": "Append Results",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        100
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Results",
+          "mode": "name"
+        },
+        "options": {},
+        "operation": "append",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "w2",
+      "name": "Append Player Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Player Stats",
+          "mode": "name"
+        },
+        "options": {},
+        "operation": "append",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "w3",
+      "name": "Update Fixtures",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        500
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Fixtures",
+          "mode": "name"
+        },
+        "options": {},
+        "operation": "update",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Match No"
+          ],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "n0",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -160
+      ],
+      "parameters": {
+        "width": 1780,
+        "height": 300,
+        "color": 4,
+        "content": "## Tournament Simulator (testing only)\nPretends to be the scorer: plays every match dated on or before **simulateUpTo** that has no result yet, then writes the score to *Results*, every player's runs/balls/wickets to *Player Stats*, and fills in semi-final and final teams in *Fixtures*.\n\n- **Every Night 9 PM**: activate the workflow and each day's matches are \"played\" that evening (17 to 23 Oct).\n- **Fast-forward**: open *Simulation Settings*, set simulateUpTo to e.g. `20 Oct 2026`, click *Test workflow*.\n- Re-running never duplicates a match. To restart the tournament, delete the data rows in Results and Player Stats and reset the TBD teams in Fixtures.\n\nUse the same sheet ID as the help desk. Turn this workflow off for a real tournament: the scorer types results instead."
+      }
+    }
+  ],
+  "connections": {
+    "Every Night 9 PM": {
+      "main": [
+        [
+          {
+            "node": "Simulation Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Manually": {
+      "main": [
+        [
+          {
+            "node": "Simulation Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulation Settings": {
+      "main": [
+        [
+          {
+            "node": "Read Fixtures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Fixtures": {
+      "main": [
+        [
+          {
+            "node": "Read Squads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Squads": {
+      "main": [
+        [
+          {
+            "node": "Read Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Results": {
+      "main": [
+        [
+          {
+            "node": "Simulate Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Matches": {
+      "main": [
+        [
+          {
+            "node": "Results Rows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Player Stats Rows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Knockout Fixture Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Results Rows": {
+      "main": [
+        [
+          {
+            "node": "Append Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Player Stats Rows": {
+      "main": [
+        [
+          {
+            "node": "Append Player Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knockout Fixture Updates": {
+      "main": [
+        [
+          {
+            "node": "Update Fixtures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}
