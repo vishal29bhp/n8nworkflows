@@ -11,6 +11,8 @@ WhatsApp Trigger → Is Text Message? → Extract Question → Read Fixtures →
 |---|---|
 | `cricket-whatsapp-helpdesk.json` | Import this into n8n (Workflows → Import from File) |
 | `tournament-fixtures-template.xlsx` | Sample data with the exact column names the workflow expects |
+| `cricket-whatsapp-helpdesk-mock.json` | **Mock version** for testing without WhatsApp credentials |
+| `test-mock.sh` | Sends fake parent messages to the mock workflow and prints the replies |
 
 ## Important: groups vs direct messages
 The official WhatsApp Business Cloud API (what n8n uses) **cannot read messages inside a normal WhatsApp group**. The working setup is:
@@ -19,6 +21,28 @@ The official WhatsApp Business Cloud API (what n8n uses) **cannot read messages 
 3. Parents message that number directly, and each one gets a private answer.
 
 Unofficial tools that scrape group chats exist, but they break WhatsApp's terms and the number can get banned, so they're not used here.
+
+## No WhatsApp credentials yet? Use mock mode
+The mock workflow is the real workflow with only the two WhatsApp nodes swapped out, so the fixture lookup, Claude prompt and answers are identical:
+
+| Real workflow | Mock workflow |
+|---|---|
+| WhatsApp Trigger (needs Meta app) | **Mock WhatsApp Webhook**: a plain n8n webhook that accepts the same JSON Meta sends |
+| Reply on WhatsApp (sends a message) | **Mock WhatsApp Reply**: returns the message that *would* be sent (recipient number + text) as the HTTP response |
+
+You still need the Google Sheets credential and the Anthropic API key (steps 1, 2, 4 and the sheet ID from step 5 below). Skip step 3.
+
+1. Import `cricket-whatsapp-helpdesk-mock.json`, set the sheet ID in **Read Fixtures** and **Read Squads**, and pick your credentials.
+2. Activate the workflow.
+3. Run the test script with the production webhook URL shown on the **Mock WhatsApp Webhook** node:
+   ```bash
+   ./test-mock.sh http://localhost:5678/webhook/whatsapp-mock
+   ./test-mock.sh http://localhost:5678/webhook/whatsapp-mock "When is Kabir B6 playing?"
+   ```
+   Each fake parent has a different phone number, and each reply shows the number it would go to, so you can confirm answers reach only the parent who asked.
+4. Prefer Postman? POST any of the payloads in `test-mock.sh` to the same URL.
+
+When you get WhatsApp credentials, import `cricket-whatsapp-helpdesk.json` instead and follow step 3. Nothing else changes.
 
 ## Setup (about 30–45 minutes)
 
