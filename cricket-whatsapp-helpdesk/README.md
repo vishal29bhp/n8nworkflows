@@ -7,6 +7,8 @@ WhatsApp Trigger → Is Text Message? → Extract Question → Read Fixtures →
   → Build AI Prompt (points table, NRR, semi-final line-up, top scorers) → Ask Claude → Reply on WhatsApp
 ```
 
+> **New to n8n?** Follow the [step-by-step setup guide](SETUP-GUIDE.md). It covers every credential and every node's settings, input and output.
+
 ## Tournament format (7 days, 17–23 Oct 2026)
 | Day | Date | Matches |
 |---|---|---|
@@ -25,6 +27,7 @@ Points: win 2, tie or no result 1, loss 0. Teams level on points are split by ne
 | `tournament-simulator.json` | Plays the matches for you (random but realistic scores) so you can test the whole 7 days |
 | `tournament-fixtures-template.xlsx` | Clean sheet for tomorrow: fixtures, squads, and empty Results and Player Stats tabs |
 | `tournament-demo-data.xlsx` | Same sheet with days 1–2 already played, for testing mid-tournament questions straight away |
+| `SETUP-GUIDE.md` | Step-by-step n8n setup with each node's input and output |
 | `sample-questions.md` | 30 parent questions grouped by tournament phase |
 | `test-mock.sh` | Sends fake parent messages to the mock workflow and prints the replies |
 
