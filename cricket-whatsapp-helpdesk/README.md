@@ -1,6 +1,6 @@
-# Cricket Tournament WhatsApp Help Desk (n8n)
+# Junior Champions T20 Cup 2026: WhatsApp Help Desk (n8n)
 
-A parent sends a WhatsApp message like *"When is Aarav playing next?"* or *"Where is the final?"* to the academy's WhatsApp number. n8n reads the tournament sheet, Claude writes a short answer using only that data, and the reply goes back to **that parent's number only**.
+A parent sends a WhatsApp message like *"When is Aarav playing next?"* or *"Where is the final?"* to the academy's WhatsApp number about the **Junior Champions T20 Cup 2026**, an 8-team T20 tournament. n8n reads the tournament sheet, Claude writes a short answer using only that data, and the reply goes back to **that parent's number only**.
 
 ```
 WhatsApp Trigger → Is Text Message? → Extract Question → Read Fixtures → Read Squads → Build AI Prompt → Ask Claude → Reply on WhatsApp
@@ -25,13 +25,21 @@ Unofficial tools that scrape group chats exist, but they break WhatsApp's terms 
 ### 1. Put the data in Google Sheets
 1. Upload `tournament-fixtures-template.xlsx` (or your real file) to Google Drive and open it with Google Sheets (File → Save as Google Sheets).
 2. Keep two tabs with these exact headers:
-   - **Fixtures**: `Match No | Date | Time | Venue | Team A | Team B | Stage`
+   - **Fixtures**: `Match No | Date | Time | Venue | Team A | Team B | Stage | Format` (Format is `T20` for every match)
    - **Squads**: `Team | Players` (players comma-separated in one cell)
 3. Copy the sheet ID from the URL: `docs.google.com/spreadsheets/d/<THIS_PART>/edit`.
 
 If your real xls has different column names, either rename the headers or edit the names in the **Build AI Prompt** Code node.
 
-### 2. WhatsApp Business Cloud API (Meta, free tier)
+### 2. Set the tournament name and format
+At the top of the **Build AI Prompt** Code node, edit:
+```js
+const TOURNAMENT_NAME = 'Junior Champions T20 Cup 2026';
+const FORMAT = 'T20 (20 overs per side)';
+```
+The bot uses these in every answer, so parents asking "how many overs?" or "what's the tournament called?" get the right reply.
+
+### 3. WhatsApp Business Cloud API (Meta, free tier)
 1. Go to developers.facebook.com → Create App → **Business** → add the **WhatsApp** product.
 2. Under WhatsApp → API Setup, add and verify the academy's phone number. Note the **Phone number ID**.
 3. Create a **permanent access token** (Business Settings → System Users → Generate token with `whatsapp_business_messaging` and `whatsapp_business_management`).
@@ -42,13 +50,13 @@ If your real xls has different column names, either rename the headers or edit t
 
 Replying to a message a parent sent is free within 24 hours of their message, so normal Q&A has no template or approval overhead.
 
-### 3. Claude API key
+### 4. Claude API key
 1. Get a key at console.anthropic.com.
 2. In n8n create a **Header Auth** credential named `Anthropic API Key`: Name `x-api-key`, Value = your key.
 
 The workflow uses `claude-haiku-5-5`, which is fast and cheap (a whole tournament's worth of questions costs pennies). Change `model` in the Build AI Prompt node if you prefer another model.
 
-### 4. Fill in the placeholders
+### 5. Fill in the placeholders
 - **Read Fixtures** and **Read Squads**: replace `PASTE_YOUR_GOOGLE_SHEET_ID`.
 - **Reply on WhatsApp**: replace `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID`.
 - Pick the matching credential on each node (open the node and choose it from the dropdown).
@@ -59,6 +67,7 @@ The workflow uses `claude-haiku-5-5`, which is fast and cheap (a whole tournamen
    - "When does Royal Strikers play?"
    - "Which team is Aarav A1 in and when is his next match?"
    - "Where is the final?"
+   - "How many overs is each match?" → should say T20, 20 overs per side.
    - "Is there a match on 3 Nov?"
    - "What's the prize money?" → should say it doesn't have that info.
 3. Check **Executions** in n8n if no reply arrives.
