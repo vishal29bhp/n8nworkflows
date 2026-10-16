@@ -1,0 +1,368 @@
+{
+  "name": "Junior Champions T20 Cup 2026 - WhatsApp Help Desk (MOCK - no WhatsApp needed)",
+  "nodes": [
+    {
+      "id": "m1",
+      "name": "Mock WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        300
+      ],
+      "webhookId": "cricket-whatsapp-mock",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-mock",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "m2",
+      "name": "Unwrap WhatsApp Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The mock webhook receives the exact JSON Meta sends to a real WhatsApp webhook.\n// Unwrap it to the same shape the real WhatsApp Trigger node outputs.\nconst body = $input.first().json.body || {};\nconst value = body.entry?.[0]?.changes?.[0]?.value;\nif (!value) {\n  throw new Error('Payload is not in WhatsApp webhook format. See test-mock.sh for examples.');\n}\nreturn [{ json: value }];"
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Is Text Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.messages?.[0]?.type }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Extract Question",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "from",
+              "value": "={{ $json.messages[0].from }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "name",
+              "value": "={{ $json.contacts?.[0]?.profile?.name || 'Parent' }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "question",
+              "value": "={{ $json.messages[0].text.body }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Read Fixtures",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Fixtures",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Read Squads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        300
+      ],
+      "executeOnce": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Squads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Turns the fixtures + squads sheets into compact text for the AI\n// Tournament details: edit these two lines for your own event\nconst TOURNAMENT_NAME = 'Junior Champions T20 Cup 2026';\nconst FORMAT = 'T20 (20 overs per side)';\n\nconst msg = $('Extract Question').first().json;\nconst fixtures = $('Read Fixtures').all().map(i => i.json);\nconst squads = $('Read Squads').all().map(i => i.json);\n\nconst fixtureText = fixtures.map(f =>\n  `Match ${f['Match No']}: ${f['Team A']} vs ${f['Team B']} | Date: ${f['Date']} | Time: ${f['Time']} | Venue: ${f['Venue']} | Stage: ${f['Stage'] || 'League'} | Format: ${f['Format'] || 'T20'}`\n).join('\\n');\n\nconst squadText = squads.map(s =>\n  `${s['Team']}: ${s['Players']}`\n).join('\\n');\n\nconst system = `You are the friendly help desk of a cricket academy that is running the ${TOURNAMENT_NAME}, an 8-team ${FORMAT} tournament.\nAnswer parents' questions ONLY using the tournament data below. Today's date is ${$now.toFormat('dd LLL yyyy')}.\nRules:\n- Refer to the tournament as the ${TOURNAMENT_NAME}. Every match is ${FORMAT} unless the fixtures say otherwise.\n- If a parent names a player, find that player's team in the squads, then answer about that team's matches.\n- Keep answers short and WhatsApp friendly (max ~8 lines), use plain text, and include date, time and venue when relevant.\n- If the answer is not in the data, say you don't have that information and ask them to contact the academy office.\n- Never invent matches, times, venues or players.\n\nFIXTURES:\n${fixtureText}\n\nSQUADS:\n${squadText}`;\n\nreturn [{ json: {\n  from: msg.from,\n  name: msg.name,\n  question: msg.question,\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 500,\n    system,\n    messages: [{ role: 'user', content: `Parent ${msg.name} asks: ${msg.question}` }]\n  }\n}}];"
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Ask Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "id": "m3",
+      "name": "Mock WhatsApp Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  mock: true,\n  note: 'This is the request that would be sent to the WhatsApp Cloud API',\n  messaging_product: 'whatsapp',\n  to: $('Build AI Prompt').first().json.from,\n  type: 'text',\n  text: { body: $json.content?.[0]?.text || 'Sorry, I could not fetch the match details right now. Please try again in a few minutes or contact the academy office.' }\n}, null, 2) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        20
+      ],
+      "parameters": {
+        "width": 1980,
+        "height": 220,
+        "color": 5,
+        "content": "## MOCK MODE: test without WhatsApp credentials\n**Mock WhatsApp Webhook** accepts the same JSON Meta would send, and **Mock WhatsApp Reply** returns the message the bot would send instead of calling WhatsApp. Everything in between is identical to the real workflow.\n\nTest: activate (or click *Listen for test event*) and run `test-mock.sh` from the repo, or POST a sample with curl/Postman.\n\nStill needed: Google Sheets credential + sheet ID, and the Anthropic API key. Going live later = import the real workflow instead."
+      }
+    },
+    {
+      "id": "m4",
+      "name": "Ignore Non-Text",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ mock: true, ignored: true, reason: 'Not a text message (status update, image, voice note...)' }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Is Text Message?": {
+      "main": [
+        [
+          {
+            "node": "Extract Question",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore Non-Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Question": {
+      "main": [
+        [
+          {
+            "node": "Read Fixtures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Fixtures": {
+      "main": [
+        [
+          {
+            "node": "Read Squads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Squads": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ask Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Claude": {
+      "main": [
+        [
+          {
+            "node": "Mock WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Unwrap WhatsApp Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unwrap WhatsApp Payload": {
+      "main": [
+        [
+          {
+            "node": "Is Text Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}
