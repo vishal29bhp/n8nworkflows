@@ -1,0 +1,334 @@
+{
+  "name": "Cricket Tournament WhatsApp Help Desk",
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "",
+          "name": "WhatsApp OAuth account"
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Is Text Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.messages?.[0]?.type }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Extract Question",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "from",
+              "value": "={{ $json.messages[0].from }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "name",
+              "value": "={{ $json.contacts?.[0]?.profile?.name || 'Parent' }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "question",
+              "value": "={{ $json.messages[0].text.body }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Read Fixtures",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Fixtures",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Read Squads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        300
+      ],
+      "executeOnce": true,
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Squads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Turns the fixtures + squads sheets into compact text for the AI\nconst msg = $('Extract Question').first().json;\nconst fixtures = $('Read Fixtures').all().map(i => i.json);\nconst squads = $('Read Squads').all().map(i => i.json);\n\nconst fixtureText = fixtures.map(f =>\n  `Match ${f['Match No']}: ${f['Team A']} vs ${f['Team B']} | Date: ${f['Date']} | Time: ${f['Time']} | Venue: ${f['Venue']} | Stage: ${f['Stage'] || 'League'}`\n).join('\\n');\n\nconst squadText = squads.map(s =>\n  `${s['Team']}: ${s['Players']}`\n).join('\\n');\n\nconst system = `You are the friendly help desk of a cricket academy that is running an 8-team tournament.\nAnswer parents' questions ONLY using the tournament data below. Today's date is ${$now.toFormat('dd LLL yyyy')}.\nRules:\n- If a parent names a player, find that player's team in the squads, then answer about that team's matches.\n- Keep answers short and WhatsApp friendly (max ~8 lines), use plain text, and include date, time and venue when relevant.\n- If the answer is not in the data, say you don't have that information and ask them to contact the academy office.\n- Never invent matches, times, venues or players.\n\nFIXTURES:\n${fixtureText}\n\nSQUADS:\n${squadText}`;\n\nreturn [{ json: {\n  from: msg.from,\n  name: msg.name,\n  question: msg.question,\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 500,\n    system,\n    messages: [{ role: 'user', content: `Parent ${msg.name} asks: ${msg.question}` }]\n  }\n}}];"
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Ask Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "id": "n8",
+      "name": "Reply on WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Build AI Prompt').first().json.from }}",
+        "textBody": "={{ $json.content?.[0]?.text || 'Sorry, I could not fetch the match details right now. Please try again in a few minutes or contact the academy office.' }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        20
+      ],
+      "parameters": {
+        "width": 1760,
+        "height": 220,
+        "color": 5,
+        "content": "## Cricket Tournament Help Desk (WhatsApp)\nParent sends a WhatsApp message to the academy number -> workflow reads the **Fixtures** and **Squads** tabs from Google Sheets -> Claude answers using only that data -> reply goes back to the same parent's number.\n\n**Setup:** replace `PASTE_YOUR_GOOGLE_SHEET_ID` in both Google Sheets nodes and `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID` in *Reply on WhatsApp*, then connect the 4 credentials. See README.md.\n\nUpdate the sheet any time (rain delay, venue change) and the bot answers with the new info immediately."
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Text Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Text Message?": {
+      "main": [
+        [
+          {
+            "node": "Extract Question",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract Question": {
+      "main": [
+        [
+          {
+            "node": "Read Fixtures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Fixtures": {
+      "main": [
+        [
+          {
+            "node": "Read Squads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Squads": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ask Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Claude": {
+      "main": [
+        [
+          {
+            "node": "Reply on WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}
