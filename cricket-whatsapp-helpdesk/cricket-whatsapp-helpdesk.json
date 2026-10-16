@@ -128,7 +128,6 @@
         880,
         300
       ],
-      "executeOnce": true,
       "parameters": {
         "documentId": {
           "__rl": true,
@@ -147,7 +146,70 @@
           "id": "",
           "name": "Google Sheets account"
         }
-      }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "n9",
+      "name": "Read Results",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Results",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "n10",
+      "name": "Read Player Stats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Player Stats",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
     },
     {
       "id": "n6",
@@ -155,12 +217,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1540,
         300
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Turns the fixtures + squads sheets into compact text for the AI\n// Tournament details: edit these two lines for your own event\nconst TOURNAMENT_NAME = 'Junior Champions T20 Cup 2026';\nconst FORMAT = 'T20 (20 overs per side)';\n\nconst msg = $('Extract Question').first().json;\nconst fixtures = $('Read Fixtures').all().map(i => i.json);\nconst squads = $('Read Squads').all().map(i => i.json);\n\nconst fixtureText = fixtures.map(f =>\n  `Match ${f['Match No']}: ${f['Team A']} vs ${f['Team B']} | Date: ${f['Date']} | Time: ${f['Time']} | Venue: ${f['Venue']} | Stage: ${f['Stage'] || 'League'} | Format: ${f['Format'] || 'T20'}`\n).join('\\n');\n\nconst squadText = squads.map(s =>\n  `${s['Team']}: ${s['Players']}`\n).join('\\n');\n\nconst system = `You are the friendly help desk of a cricket academy that is running the ${TOURNAMENT_NAME}, an 8-team ${FORMAT} tournament.\nAnswer parents' questions ONLY using the tournament data below. Today's date is ${$now.toFormat('dd LLL yyyy')}.\nRules:\n- Refer to the tournament as the ${TOURNAMENT_NAME}. Every match is ${FORMAT} unless the fixtures say otherwise.\n- If a parent names a player, find that player's team in the squads, then answer about that team's matches.\n- Keep answers short and WhatsApp friendly (max ~8 lines), use plain text, and include date, time and venue when relevant.\n- If the answer is not in the data, say you don't have that information and ask them to contact the academy office.\n- Never invent matches, times, venues or players.\n\nFIXTURES:\n${fixtureText}\n\nSQUADS:\n${squadText}`;\n\nreturn [{ json: {\n  from: msg.from,\n  name: msg.name,\n  question: msg.question,\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 500,\n    system,\n    messages: [{ role: 'user', content: `Parent ${msg.name} asks: ${msg.question}` }]\n  }\n}}];"
+        "jsCode": "// Builds everything the AI needs: fixtures, squads, results, points table and player stats\n// Tournament details: edit these lines for your own event\nconst TOURNAMENT_NAME = 'Junior Champions T20 Cup 2026';\nconst FORMAT = 'T20 (20 overs per side)';\nconst SCHEDULE_NOTE = '7 days: league 17-20 Oct, 21 Oct reserve day for rain-affected matches, semi-finals 22 Oct, final 23 Oct';\nconst POINTS = { win: 2, tie: 1, noResult: 1 };\n// Testing a simulation ahead of time? Set this to the simulated date, e.g. '19 Oct 2026'. Leave '' for real use.\nconst SIMULATED_TODAY = '';\nconst MAX_BALLS = 120; // 20 overs; a side bowled out is counted as facing its full 20 overs for NRR\n\nconst msg = $('Extract Question').first().json;\nconst today = SIMULATED_TODAY ? DateTime.fromFormat(SIMULATED_TODAY, 'dd LLL yyyy') : $now;\nconst rows = name => $(name).all().map(i => i.json || {}).filter(r => Object.keys(r).length);\nconst has = v => v !== undefined && v !== null && String(v).trim() !== '';\nconst num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };\nconst toBalls = o => { const [ov, b] = String(o ?? '0').split('.'); return num(ov) * 6 + num(b || 0); };\nconst overs = b => `${Math.floor(b / 6)}.${b % 6}`;\n\nconst fixtures = rows('Read Fixtures').filter(f => has(f['Match No']));\nconst squads = rows('Read Squads').filter(s => has(s['Team']));\nconst results = rows('Read Results').filter(r => has(r['Match No']) && (has(r['Winner']) || has(r['Result'])));\nconst stats = rows('Read Player Stats').filter(p => has(p['Player']));\n\nconst fixtureByNo = Object.fromEntries(fixtures.map(f => [String(f['Match No']), f]));\nconst resultByNo = Object.fromEntries(results.map(r => [String(r['Match No']), r]));\nconst teamGroup = Object.fromEntries(squads.map(s => [s['Team'], s['Group'] || '']));\n\n// ---------- Results text + points table ----------\nconst table = {};\nconst ensure = t => (table[t] ??= { team: t, group: teamGroup[t] || '', P: 0, W: 0, L: 0, T: 0, NR: 0, Pts: 0, rf: 0, bf: 0, ra: 0, bb: 0 });\nsquads.forEach(s => ensure(s['Team']));\n\nconst resultLines = [];\nfor (const r of results) {\n  const f = fixtureByNo[String(r['Match No'])];\n  if (!f) continue;\n  const a = f['Team A'], b = f['Team B'];\n  const res = String(r['Result'] || 'Normal').toLowerCase();\n  const score = (t, side) => `${t} ${num(r[`Team ${side} Runs`])}/${num(r[`Team ${side} Wickets`])} (${r[`Team ${side} Overs`] || 0} ov)`;\n  let outcome;\n  if (res.includes('no result') || res.includes('abandon')) outcome = 'No result';\n  else if (res.includes('tie')) outcome = 'Match tied';\n  else {\n    const firstIsA = !has(r['Batted First']) || r['Batted First'] === a;\n    const winnerBattedFirst = (r['Winner'] === a) === firstIsA;\n    const [wSide, lSide] = r['Winner'] === a ? ['A', 'B'] : ['B', 'A'];\n    outcome = winnerBattedFirst\n      ? `${r['Winner']} won by ${num(r[`Team ${wSide} Runs`]) - num(r[`Team ${lSide} Runs`])} runs`\n      : `${r['Winner']} won by ${10 - num(r[`Team ${wSide} Wickets`])} wickets`;\n  }\n  resultLines.push(`Match ${f['Match No']} (${f['Stage'] || 'League'}, ${f['Date']}): ${score(a, 'A')} vs ${score(b, 'B')} | ${outcome}` +\n    (has(r['Player of the Match']) ? ` | Player of the Match: ${r['Player of the Match']}` : ''));\n\n  if (!/league/i.test(f['Stage'] || 'League')) continue;\n  const A = ensure(a), B = ensure(b);\n  A.P++; B.P++;\n  if (outcome === 'No result') { A.NR++; B.NR++; A.Pts += POINTS.noResult; B.Pts += POINTS.noResult; continue; }\n  if (outcome === 'Match tied') { A.T++; B.T++; A.Pts += POINTS.tie; B.Pts += POINTS.tie; }\n  else if (r['Winner'] === a) { A.W++; B.L++; A.Pts += POINTS.win; }\n  else { B.W++; A.L++; B.Pts += POINTS.win; }\n  const aBalls = num(r['Team A Wickets']) >= 10 ? MAX_BALLS : toBalls(r['Team A Overs']);\n  const bBalls = num(r['Team B Wickets']) >= 10 ? MAX_BALLS : toBalls(r['Team B Overs']);\n  A.rf += num(r['Team A Runs']); A.bf += aBalls; A.ra += num(r['Team B Runs']); A.bb += bBalls;\n  B.rf += num(r['Team B Runs']); B.bf += bBalls; B.ra += num(r['Team A Runs']); B.bb += aBalls;\n}\nconst nrr = t => (t.bf && t.bb ? t.rf / (t.bf / 6) - t.ra / (t.bb / 6) : 0);\nconst groups = [...new Set(Object.values(table).map(t => t.group))].sort();\nconst standings = Object.fromEntries(groups.map(g => [g,\n  Object.values(table).filter(t => t.group === g).sort((x, y) => y.Pts - x.Pts || nrr(y) - nrr(x) || y.W - x.W)]));\n\nconst tableText = groups.map(g => `Group ${g}:\\n` + standings[g].map((t, i) =>\n  `${i + 1}. ${t.team} | P ${t.P} W ${t.W} L ${t.L} T ${t.T} NR ${t.NR} | Pts ${t.Pts} | NRR ${nrr(t) >= 0 ? '+' : ''}${nrr(t).toFixed(3)}`).join('\\n')).join('\\n\\n');\n\nconst leagueLeft = fixtures.filter(f => /league/i.test(f['Stage'] || 'League') && !resultByNo[String(f['Match No'])]).length;\nconst top2 = g => (standings[g] || []).slice(0, 2).map(t => t.team);\nconst semiText = groups.length === 2\n  ? `Semi-final rule: SF1 = Group ${groups[0]} winner vs Group ${groups[1]} runner-up, SF2 = Group ${groups[1]} winner vs Group ${groups[0]} runner-up. ` +\n    (Object.values(table).every(t => t.P === 0) ? 'No league matches played yet.' : leagueLeft === 0\n      ? `League stage complete. SF1: ${top2(groups[0])[0]} vs ${top2(groups[1])[1]}. SF2: ${top2(groups[1])[0]} vs ${top2(groups[0])[1]}.`\n      : `${leagueLeft} league matches still to play, so semi-finalists are not final yet. Current top two: Group ${groups[0]}: ${top2(groups[0]).join(', ')}; Group ${groups[1]}: ${top2(groups[1]).join(', ')}.`)\n  : '';\n\n// ---------- Player stats ----------\nconst players = {};\nfor (const p of stats) {\n  const k = `${p['Player']}|${p['Team'] || ''}`;\n  const s = (players[k] ??= { name: p['Player'], team: p['Team'] || '', m: new Set(), runs: 0, balls: 0, fours: 0, sixes: 0, hs: 0, bb: 0, rc: 0, wk: 0, ct: 0, best: [0, 0] });\n  s.m.add(String(p['Match No']));\n  const runs = num(p['Runs']);\n  s.runs += runs; s.balls += num(p['Balls']); s.fours += num(p['Fours']); s.sixes += num(p['Sixes']); s.hs = Math.max(s.hs, runs);\n  const wk = num(p['Wickets']), rc = num(p['Runs Conceded']);\n  s.bb += toBalls(p['Overs Bowled']); s.rc += rc; s.wk += wk; s.ct += num(p['Catches']);\n  if (wk > s.best[0] || (wk === s.best[0] && wk > 0 && rc < s.best[1])) s.best = [wk, rc];\n}\nconst all = Object.values(players);\nconst sr = s => (s.balls ? (s.runs / s.balls * 100).toFixed(1) : '-');\nconst econ = s => (s.bb ? (s.rc / (s.bb / 6)).toFixed(2) : '-');\nconst topRuns = [...all].sort((x, y) => y.runs - x.runs || x.balls - y.balls).filter(s => s.runs > 0).slice(0, 5)\n  .map((s, i) => `${i + 1}. ${s.name} (${s.team}) ${s.runs} runs, ${s.m.size} matches, HS ${s.hs}, SR ${sr(s)}`).join('\\n');\nconst topWkts = [...all].sort((x, y) => y.wk - x.wk || x.rc - y.rc).filter(s => s.wk > 0).slice(0, 5)\n  .map((s, i) => `${i + 1}. ${s.name} (${s.team}) ${s.wk} wickets, best ${s.best[0]}/${s.best[1]}, econ ${econ(s)}`).join('\\n');\nconst playerText = all.map(s =>\n  `${s.name} (${s.team}): ${s.m.size} m | bat ${s.runs} runs off ${s.balls} balls, HS ${s.hs}, 4s ${s.fours}, 6s ${s.sixes}` +\n  (s.bb ? ` | bowl ${overs(s.bb)} ov, ${s.wk} wkts for ${s.rc}, econ ${econ(s)}` : '') + (s.ct ? ` | ${s.ct} catches` : '')).join('\\n');\n\n// ---------- Prompt ----------\nconst fixtureText = fixtures.map(f => {\n  const done = resultByNo[String(f['Match No'])] ? 'COMPLETED' : 'UPCOMING';\n  return `Match ${f['Match No']} [${done}]: ${f['Team A']} vs ${f['Team B']} | ${f['Stage'] || 'League'}${has(f['Group']) ? ' Group ' + f['Group'] : ''} | ${f['Date']} ${f['Time']} | ${f['Venue']} | ${f['Format'] || 'T20'}`;\n}).join('\\n');\nconst squadText = squads.map(s => `${s['Team']} (Group ${s['Group'] || '-'}): ${s['Players']}`).join('\\n');\n\nconst system = `You are the friendly WhatsApp help desk of a cricket academy running the ${TOURNAMENT_NAME}, an 8-team ${FORMAT} tournament.\nSchedule: ${SCHEDULE_NOTE}.\nToday is ${today.toFormat('cccc, dd LLL yyyy')}${SIMULATED_TODAY ? ' (simulated date)' : ` and the time is ${$now.toFormat('hh:mm a')}`}.\n\nRules:\n- Answer ONLY from the data below. Never invent matches, timings, venues, scores or player numbers.\n- If a parent names a player, find the player's team in SQUADS, then answer about that player (PLAYER STATS) and their team's matches.\n- \"Next match\", \"today\", \"tomorrow\" are relative to today's date above. Matches marked UPCOMING have no result yet.\n- Points: win ${POINTS.win}, tie or no result ${POINTS.noResult}, loss 0. Teams level on points are separated by net run rate (NRR).\n- If a player has no row in PLAYER STATS they have not batted or bowled yet; say so kindly.\n- Keep replies short and WhatsApp friendly (max ~10 lines, plain text, simple emojis are fine).\n- If the answer is not in the data, say you don't have that information and suggest contacting the academy office.\n\nFIXTURES:\n${fixtureText}\n\nRESULTS:\n${resultLines.join('\\n') || 'No matches completed yet.'}\n\nPOINTS TABLE (calculated from results):\n${tableText}\n${semiText}\n\nTOP RUN SCORERS:\n${topRuns || 'No runs recorded yet.'}\n\nTOP WICKET TAKERS:\n${topWkts || 'No wickets recorded yet.'}\n\nPLAYER STATS (tournament totals):\n${playerText || 'No player stats recorded yet.'}\n\nSQUADS:\n${squadText}`;\n\nreturn [{ json: {\n  from: msg.from,\n  name: msg.name,\n  question: msg.question,\n  body: {\n    model: 'claude-haiku-5-5',\n    max_tokens: 600,\n    system,\n    messages: [{ role: 'user', content: `Parent ${msg.name} asks: ${msg.question}` }]\n  }\n}}];"
       }
     },
     {
@@ -169,7 +231,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        1760,
         300
       ],
       "onError": "continueRegularOutput",
@@ -211,7 +273,7 @@
       "type": "n8n-nodes-base.whatsApp",
       "typeVersion": 1,
       "position": [
-        1540,
+        1980,
         300
       ],
       "parameters": {
@@ -238,10 +300,10 @@
         20
       ],
       "parameters": {
-        "width": 1760,
-        "height": 220,
+        "width": 2200,
+        "height": 230,
         "color": 5,
-        "content": "## Junior Champions T20 Cup 2026: WhatsApp Help Desk\nParent sends a WhatsApp message to the academy number -> workflow reads the **Fixtures** and **Squads** tabs from Google Sheets -> Claude answers using only that data (tournament name and T20 format are set at the top of *Build AI Prompt*) -> reply goes back to the same parent's number.\n\n**Setup:** replace `PASTE_YOUR_GOOGLE_SHEET_ID` in both Google Sheets nodes and `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID` in *Reply on WhatsApp*, then connect the 4 credentials. See README.md.\n\nUpdate the sheet any time (rain delay, venue change) and the bot answers with the new info immediately."
+        "content": "## Junior Champions T20 Cup 2026: WhatsApp Help Desk\nParent messages the academy number -> workflow reads **Fixtures, Squads, Results, Player Stats** from Google Sheets -> *Build AI Prompt* calculates the points table, NRR, semi-final line-up and top performers -> Claude answers -> reply goes only to that parent.\n\n**During the tournament:** the scorer adds one row to *Results* and one row per player to *Player Stats* after each match. Standings update automatically on the next question.\n\n**Setup:** replace `PASTE_YOUR_GOOGLE_SHEET_ID` in the 4 Google Sheets nodes and `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID` in *Reply on WhatsApp*. See README.md."
       }
     }
   ],
@@ -292,6 +354,28 @@
       ]
     },
     "Read Squads": {
+      "main": [
+        [
+          {
+            "node": "Read Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Results": {
+      "main": [
+        [
+          {
+            "node": "Read Player Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Player Stats": {
       "main": [
         [
           {
