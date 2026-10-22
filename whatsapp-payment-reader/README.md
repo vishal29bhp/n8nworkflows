@@ -16,7 +16,7 @@ WhatsApp image message → Has Screenshot? → Download image → Claude reads i
 | `whatsapp-payment-reader.json` | Real version for when you have the WhatsApp Business Cloud API |
 | `payments-sheet-template.xlsx` | The Payments sheet with all headers. Upload to Google Drive and open as a Google Sheet |
 | `samples/` | 6 fake payment screenshots for the demo (watermarked "DEMO SAMPLE") and the script that made them |
-| `test-mock.sh` | Sends the sample screenshots to the mock workflow and prints the reply and the logged row |
+| `test-mock.sh` / `test-mock.ps1` | Sends the sample screenshots to the mock workflow and prints the reply and the logged row (`.sh` for Mac/Linux/Git Bash, `.ps1` for Windows PowerShell) |
 | [`../prompts/payment-screenshot-extraction.md`](../prompts/payment-screenshot-extraction.md) | The RCTFC extraction prompt Claude uses |
 
 ## The spreadsheet
@@ -72,10 +72,17 @@ Claude, the parsing, the duplicate check and the Google Sheet are all real.
    ```bash
    ./test-mock.sh http://localhost:5678/webhook/whatsapp-payment-mock
    ```
+   On Windows, open PowerShell in this folder and run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-payment-mock
+   ```
    It sends the 6 sample screenshots, then resends the first one and sends a text-only message. Rows appear in the sheet one by one.
 4. Try your own screenshot (JPG or PNG):
    ```bash
    ./test-mock.sh http://localhost:5678/webhook/whatsapp-payment-mock ~/Downloads/my-payment.jpg "Rent for November"
+   ```
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-payment-mock C:\Users\you\Downloads\my-payment.jpg "Rent for November"
    ```
 5. No terminal? In Postman, POST the JSON from `test-mock.sh` to the same URL.
 

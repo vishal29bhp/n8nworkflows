@@ -26,7 +26,7 @@ Points: win 2, tie or no result 1, loss 0. Teams level on points are split by ne
 | `tournament-fixtures-template.xlsx` | Clean sheet for tomorrow: fixtures, squads, and empty Results and Player Stats tabs |
 | `tournament-demo-data.xlsx` | Same sheet with days 1–2 already played, for testing mid-tournament questions straight away |
 | `sample-questions.md` | 30 parent questions grouped by tournament phase |
-| `test-mock.sh` | Sends fake parent messages to the mock workflow and prints the replies |
+| `test-mock.sh` / `test-mock.ps1` | Sends fake parent messages to the mock workflow and prints the replies (`.sh` for Mac/Linux/Git Bash, `.ps1` for Windows PowerShell) |
 
 ## The sheet
 | Tab | Columns | Who fills it |
@@ -71,6 +71,11 @@ You still need the Google Sheets credential and the Anthropic API key (steps 1, 
    ```bash
    ./test-mock.sh http://localhost:5678/webhook/whatsapp-mock
    ./test-mock.sh http://localhost:5678/webhook/whatsapp-mock "How many wickets has Neel B11 taken?"
+   ```
+   On Windows, open PowerShell in this folder and run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-mock
+   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-mock "How many wickets has Neel B11 taken?"
    ```
    Each fake parent has a different phone number, and each reply shows the number it would go to, so you can confirm answers reach only the parent who asked.
 4. Prefer Postman? POST any of the payloads in `test-mock.sh` to the same URL.
