@@ -19,6 +19,96 @@ WhatsApp image message → Has Screenshot? → Download image → Claude reads i
 | `test-mock.sh` / `test-mock.ps1` | Sends the sample screenshots to the mock workflow and prints the reply and the logged row (`.sh` for Mac/Linux/Git Bash, `.ps1` for Windows PowerShell) |
 | [`../prompts/payment-screenshot-extraction.md`](../prompts/payment-screenshot-extraction.md) | The RCTFC extraction prompt Claude uses |
 
+## Windows step by step: run the demo from VS Code
+VS Code is where you keep the files and open terminals. The workflow itself runs inside **n8n**, which you start from a VS Code terminal and use in your browser. Allow about 30 minutes the first time, most of it for the Google sign-in setup in step 4.
+
+### What you need
+| | Where to get it |
+|---|---|
+| Node.js 22 LTS (includes `npx`) | nodejs.org → download the Windows LTS installer → install with the defaults. Close and reopen VS Code afterwards |
+| Git and VS Code | You already have these if you can pull the repo |
+| A Google account | For the Payments sheet |
+| An Anthropic API key | console.anthropic.com → API Keys → Create key. Add a little credit under Billing (the demo costs a few rupees) |
+
+Check Node: in VS Code open **Terminal → New Terminal** and run `node -v`. It should print `v22.x` (v20.19 or later also works).
+
+### 1. Get the files
+In VS Code: **Terminal → New Terminal**, then
+```powershell
+git clone https://github.com/vishal29bhp/n8nworkflows.git
+cd n8nworkflows
+```
+If you already have the repo, run `git pull` in it instead.
+
+### 2. Start n8n
+In the same terminal:
+```powershell
+npx n8n
+```
+The first run downloads n8n and takes a few minutes. When it prints `Editor is now accessible via: http://localhost:5678`, open that address in your browser and create your owner account. It's local, so any email and password will do.
+
+Leave this terminal running. n8n stops when you close it, and `npx n8n` starts it again with everything you saved.
+
+### 3. Create the Payments sheet
+1. Go to drive.google.com → **New → File upload** → choose `whatsapp-payment-reader\payments-sheet-template.xlsx`.
+2. Open it, then **File → Save as Google Sheets**. Use the new Google Sheet from now on, not the .xlsx.
+3. Copy the sheet ID from the address bar: `docs.google.com/spreadsheets/d/`**`<THIS_PART>`**`/edit`. Keep it in Notepad for step 6.
+
+### 4. Connect n8n to Google Sheets (one-time Google Cloud setup)
+On n8n running on your own computer, Google sign-in needs your own OAuth client:
+1. Go to console.cloud.google.com → project picker at the top → **New Project** (e.g. `n8n-demo`) → select it.
+2. **APIs & Services → Library** → search **Google Sheets API** → **Enable**. Do the same for **Google Drive API**.
+3. **APIs & Services → OAuth consent screen** (may be called *Google Auth Platform*) → **Get started** → app name `n8n demo`, your email → Audience **External** → finish. Under **Audience → Test users**, add your own Gmail address.
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID** → type **Web application** → under **Authorized redirect URIs** add
+   `http://localhost:5678/rest/oauth2-credential/callback` → **Create**. Copy the **Client ID** and **Client secret**.
+5. In n8n: left sidebar **Overview → Credentials** tab (or **Create → Credential**) → search **Google Sheets OAuth2 API** → paste the Client ID and Client secret → **Sign in with Google** → choose your account. If Google warns "app isn't verified", click **Continue**, since it's your own app. Save it with the name `Google Sheets account`.
+
+### 5. Add your Claude API key to n8n
+**Create → Credential** → search **Header Auth** → Name: `x-api-key`, Value: your Anthropic key → save it with the name `Anthropic API Key`.
+
+### 6. Import the workflow
+1. In n8n: **Create → Workflow**. Then use the **⋯** menu at the top right → **Import from File** → pick `whatsapp-payment-reader\whatsapp-payment-reader-mock.json`.
+2. Double-click **Read Logged Payments**: in *Document*, paste your sheet ID in place of `PASTE_YOUR_GOOGLE_SHEET_ID`, and pick `Google Sheets account` as the credential. Close it.
+3. Do the same in **Append to Payments Sheet**.
+4. Double-click **Read Screenshot with Claude** and pick `Anthropic API Key` as the credential.
+5. **Save** (Ctrl+S). No node should show a red warning triangle any more.
+
+### 7. Turn it on
+Click the **Inactive / Active** toggle at the top (called **Publish** in newer n8n versions). The **Mock WhatsApp Webhook** node now listens at
+`http://localhost:5678/webhook/whatsapp-payment-mock`.
+
+### 8. Run the demo
+Open a **second** terminal in VS Code (the **+** in the terminal panel) and leave n8n running in the first one:
+```powershell
+cd whatsapp-payment-reader
+powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-payment-mock
+```
+For each screenshot you'll see who sent it, the WhatsApp reply they would get, and the row that was saved. Keep the Google Sheet open next to it: rows appear one by one. Every run is also recorded in n8n under **Executions**, where you can click any node to see what went in and out, including Claude's raw answer.
+
+To try a real screenshot of your own (JPG or PNG):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-payment-mock "C:\Users\<you>\Downloads\payment.jpg" "Rent for November"
+```
+Running the samples again adds them as *Duplicate* rows, because the Txn IDs are already in the sheet. To start a demo fresh, delete the data rows (keep row 1 with the headers).
+
+### If something goes wrong
+| You see | Fix |
+|---|---|
+| `npx` is not recognized | Node.js isn't installed, or VS Code was open during the install. Reinstall Node and restart VS Code |
+| `404` / *webhook is not registered* | The workflow isn't active (step 7), or the URL has a typo |
+| Reply says "our team will verify" for every screenshot, and the row says *could not read the screenshot automatically* | Claude call failed. Open the execution → **Read Screenshot with Claude** to see why: usually a wrong key, the credential name isn't `x-api-key`, or no credit on the Anthropic account |
+| Google error `403` or *access blocked* | Sheets/Drive API not enabled (step 4.2), or your Gmail isn't a test user (step 4.3) |
+| Google error `redirect_uri_mismatch` | The redirect URI in step 4.4 must match exactly what n8n shows in the credential window |
+| Sheet error *Sheet with name Payments not found* | The tab must be named `Payments`, and the ID must be from the Google Sheet, not the uploaded .xlsx |
+| Port 5678 already in use | n8n is already running in another terminal; use that one |
+
+### Alternative: n8n Cloud (no install)
+Sign up at n8n.io (there's a free trial). Steps 1 and 2 go away, and in step 4 you just click **Sign in with Google** on the Google Sheets credential, with no Google Cloud project. Do steps 3, 5, 6 and 7 the same way. Then run the test script with your cloud address instead of localhost:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 https://<your-name>.app.n8n.cloud/webhook/whatsapp-payment-mock
+```
+You need n8n Cloud, or another public HTTPS address, later anyway for real WhatsApp, because Meta can't reach `localhost`.
+
 ## The spreadsheet
 One tab named **Payments**, one row per screenshot:
 
@@ -65,6 +155,8 @@ The mock workflow is the real workflow with only the WhatsApp nodes swapped:
 | Reply on WhatsApp | **Mock WhatsApp Reply**: returns the message that *would* be sent, plus the row written to the sheet |
 
 Claude, the parsing, the duplicate check and the Google Sheet are all real.
+
+On Windows, follow [Windows step by step](#windows-step-by-step-run-the-demo-from-vs-code) above instead of the short version below.
 
 1. Do setup steps 1, 2 and 4 below (sheet and Claude key). Skip step 3.
 2. Import `whatsapp-payment-reader-mock.json` (Workflows → Import from File), set the sheet ID in **Read Logged Payments** and **Append to Payments Sheet**, pick your credentials, and activate it.
