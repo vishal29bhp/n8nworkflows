@@ -1,0 +1,597 @@
+{
+  "name": "WhatsApp Payment Screenshot Reader",
+  "nodes": [
+    {
+      "id": "r1",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        -220,
+        300
+      ],
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "",
+          "name": "WhatsApp OAuth account"
+        }
+      }
+    },
+    {
+      "id": "r2",
+      "name": "Read WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The WhatsApp Trigger outputs the 'value' object of Meta's webhook.\nconst value = $input.first().json;\n// Turn a WhatsApp message into the fields the rest of the flow needs.\nconst m = value.messages?.[0];\nif (!m) return []; // delivery/read receipts carry no message: nothing to do\nconst contact = value.contacts?.[0] || {};\n// Screenshots usually arrive as an image; some people send them as a document\nconst media = m.image || (m.document?.mime_type?.startsWith('image/') ? m.document : null);\nconst ts = Number(m.timestamp) || Math.floor(Date.now() / 1000);\nreturn [{ json: {\n  from: m.from,\n  senderName: contact.profile?.name || '',\n  messageId: m.id,\n  receivedAt: DateTime.fromSeconds(ts).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss'),\n  hasImage: !!media,\n  mediaId: media?.id || '',\n  mimeType: media?.mime_type || 'image/jpeg',\n  caption: media?.caption || m.text?.body || '',\n  imageBase64: media?.mock_base64 || '' // mock only: the real flow downloads the image from WhatsApp\n} }];"
+      }
+    },
+    {
+      "id": "r3",
+      "name": "Has Screenshot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.hasImage }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "r4",
+      "name": "Reply: Ask for Screenshot",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        440,
+        520
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read WhatsApp Message').first().json.from }}",
+        "textBody": "={{ \"Hi! Please send the payment screenshot as an image (you can add a note like the name or purpose in the caption).\" }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "id": "r5",
+      "name": "Get Media URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.mediaId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "WhatsApp Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "r6",
+      "name": "Download Screenshot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "WhatsApp Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "r7",
+      "name": "Attach Image Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Turn the downloaded screenshot into base64 for Claude\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst msg = $('Read WhatsApp Message').first().json;\nconst mimeType = ($input.first().binary.data.mimeType || msg.mimeType).split(';')[0];\nreturn [{ json: { ...msg, mimeType, imageBase64: buffer.toString('base64') } }];"
+      }
+    },
+    {
+      "id": "p1",
+      "name": "Build Extraction Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Builds the Claude vision request. The prompt lives in prompts/payment-screenshot-extraction.md\nconst MODEL = 'claude-sonnet-5-5'; // or 'claude-haiku-5-5' for lower cost\nconst SYSTEM_PROMPT = `**R (Role)**\nYou are a meticulous payments reconciliation assistant for an Indian business. You read UPI and wallet payment screenshots from any app (Google Pay, PhonePe, Paytm, WhatsApp Pay, CRED, BHIM, Amazon Pay, bank apps) and copy the details exactly as shown.\n\n**C (Context)**\nCustomers send a screenshot of their payment on WhatsApp, sometimes with a caption such as \"Aarav October fees\". Each app lays out the same facts differently: the UPI transaction ID may be called \"UPI Ref No\", \"UTR\", \"UPI transaction ID\" or \"Transaction ref\", and the date may be \"22 Oct 2026, 10:41 am\", \"22-10-2026 09:55\" or \"21/10/2026\". Your output is written straight into an accounts spreadsheet, so a wrong value is worse than a blank one.\n\n**T (Task)**\n1. Decide whether the image is a payment confirmation screenshot.\n2. If it is, extract: amount, payment status, payer name, payer mobile number, payer UPI ID, payee name, payee UPI ID, transaction ID, any other reference number, payment date and time, the app used, and any note written in the screenshot.\n3. Use the caption only to fill gaps (for example a note), never to override what the screenshot shows.\n\n**F (Format)**\nReply with one JSON object and nothing else:\n\\`\\`\\`json\n{\n  \"is_payment_screenshot\": true,\n  \"payment_app\": \"Google Pay | PhonePe | Paytm | WhatsApp Pay | CRED | BHIM | Amazon Pay | Bank app | Other\",\n  \"payment_status\": \"Success | Pending | Failed | Unknown\",\n  \"amount\": 1500.00,\n  \"payer_name\": \"Rahul Verma\",\n  \"payer_mobile\": \"9876501234\",\n  \"payer_upi_id\": null,\n  \"payee_name\": \"Sunrise Cricket Academy\",\n  \"payee_upi_id\": \"sunrisecricket@okaxis\",\n  \"transaction_id\": \"629514873201\",\n  \"other_reference\": \"CICAgKD9xLmQBg\",\n  \"payment_date\": \"2026-10-22\",\n  \"payment_time\": \"10:41\",\n  \"note_in_screenshot\": \"Aarav U12 October fees\",\n  \"confidence\": \"high | medium | low\",\n  \"issues\": \"short note on anything unreadable, cut off or suspicious, else null\"\n}\n\\`\\`\\`\n\n**C (Constraints)**\n- Never guess. If a field is not visible, use \\`null\\`.\n- \\`amount\\`: a number in rupees, without the ₹ sign or commas.\n- \\`transaction_id\\`: prefer the 12-digit UPI reference (UPI transaction ID, UPI Ref No, UTR). Put any app-specific ID (for example a PhonePe \"T…\" ID or a Google transaction ID) in \\`other_reference\\`. If there is no UPI reference, use the app's ID as \\`transaction_id\\`.\n- \\`payer_mobile\\`: only a number shown as the payer's or sender's. 10 digits, no +91, no spaces. Never use the payee's number.\n- Payer is the person who paid (From, Debited from, Paid by). Payee is who received it (To, Paid to).\n- Dates as \\`YYYY-MM-DD\\`, times as 24-hour \\`HH:mm\\`. Dates in screenshots are day-first (Indian format).\n- \\`payment_status\\` is \\`Success\\` only when the screenshot clearly says successful, completed or paid.\n- \\`confidence\\` is \\`low\\` if the image is blurry, cropped, edited-looking, or key fields are missing.\n- If it is not a payment screenshot, return \\`is_payment_screenshot: false\\` with every other field \\`null\\` and a short reason in \\`issues\\`.`;\n\nconst msg = $('Attach Image Data').first().json;\nconst supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];\nconst mediaType = supported.includes(msg.mimeType) ? msg.mimeType : 'image/jpeg';\n\nreturn [{ json: { body: {\n  model: MODEL,\n  max_tokens: 1024,\n  system: SYSTEM_PROMPT,\n  messages: [{ role: 'user', content: [\n    { type: 'image', source: { type: 'base64', media_type: mediaType, data: msg.imageBase64 } },\n    { type: 'text', text: `WhatsApp caption sent with the screenshot: ${msg.caption ? JSON.stringify(msg.caption) : '(none)'}\\nReceived on WhatsApp at ${msg.receivedAt} IST.\\nExtract the payment details as instructed. Reply with the JSON object only.` }\n  ] }]\n} } }];"
+      }
+    },
+    {
+      "id": "p2",
+      "name": "Read Screenshot with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "id": "p3",
+      "name": "Parse Payment Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Reads Claude's JSON and shapes the spreadsheet row and the WhatsApp reply.\n// Optional: words that must appear in the payee name or UPI ID, e.g. ['sunrise']. Leave [] to accept any payee.\nconst EXPECTED_PAYEE = [];\n\nconst msg = $('Attach Image Data').first().json;\nconst text = $input.first().json.content?.[0]?.text || '';\nlet x = null;\ntry {\n  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);\n  x = JSON.parse(json);\n} catch (e) { x = null; }\n\nconst has = v => v !== undefined && v !== null && String(v).trim() !== '';\nconst digits = v => String(v || '').replace(/\\D/g, '').replace(/^(91|0)(?=\\d{10}$)/, '');\nconst sender = digits(msg.from);\n\n// Claude unreachable or unreadable answer: still log it so nothing is lost\nconst unread = !x;\nif (unread) x = { is_payment_screenshot: true, confidence: 'low' };\nif (x.is_payment_screenshot === false) {\n  return [{ json: { isPayment: false, from: msg.from, reason: x.issues || '' } }];\n}\n\nconst mobile = digits(x.payer_mobile);\nconst amount = has(x.amount) ? Number(String(x.amount).replace(/[^\\d.]/g, '')) : null;\nconst status = x.payment_status || 'Unknown';\nconst payee = [x.payee_name, x.payee_upi_id].filter(has).join(' ');\n\nconst review = [];\nif (unread) review.push('could not read the screenshot automatically');\nelse if (status !== 'Success') review.push(`payment ${status.toLowerCase()}`);\nif (!unread && !amount) review.push('amount missing');\nif (!unread && !has(x.transaction_id)) review.push('txn ID missing');\nif (!unread && x.confidence === 'low') review.push('low confidence');\nif (EXPECTED_PAYEE.length && !EXPECTED_PAYEE.some(w => payee.toLowerCase().includes(w.toLowerCase()))) review.push('paid to someone else');\nif (has(x.issues) && x.confidence !== 'high') review.push(x.issues);\n\nconst comments = [\n  has(x.note_in_screenshot) && `Note: ${x.note_in_screenshot}`,\n  has(msg.caption) && `Message: ${msg.caption}`,\n  has(x.other_reference) && `Other ref: ${x.other_reference}`\n].filter(Boolean).join(' | ');\n\nconst row = {\n  'Received At': msg.receivedAt,\n  'Sender WhatsApp': sender,\n  'Sender Name': msg.senderName,\n  'Mobile Number': mobile.length === 10 ? mobile : sender,\n  'Payer Name': x.payer_name || '',\n  'Amount': amount ?? '',\n  'Txn ID': x.transaction_id ? String(x.transaction_id).replace(/\\s/g, '') : '',\n  'Payment Date': x.payment_date || '',\n  'Payment Time': x.payment_time || '',\n  'Payment App': x.payment_app || '',\n  'Payment Status': status,\n  'Paid To': payee,\n  'Comments': comments,\n  'Review Status': review.length ? `Needs review: ${review.join(', ')}` : 'OK',\n  'Confidence': x.confidence || '',\n  'WhatsApp Message ID': msg.messageId\n};\nreturn [{ json: { isPayment: true, from: msg.from, row } }];"
+      }
+    },
+    {
+      "id": "p4",
+      "name": "Is Payment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.isPayment }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "p5",
+      "name": "Read Logged Payments",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Payments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "p6",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Marks the row as a duplicate if the same Txn ID is already in the sheet, then outputs just the row to append.\nconst { row } = $('Parse Payment Details').first().json;\nconst logged = $input.all().map(i => i.json).filter(r => r && r['Txn ID']);\nconst earlier = row['Txn ID'] && logged.find(r => String(r['Txn ID']) === String(row['Txn ID']));\nif (earlier) row['Review Status'] = `Duplicate of payment logged at ${earlier['Received At']}`;\nreturn [{ json: row }];"
+      }
+    },
+    {
+      "id": "p7",
+      "name": "Append to Payments Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2420,
+        200
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Payments",
+          "mode": "name"
+        },
+        "options": {},
+        "operation": "append",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "p8",
+      "name": "Build Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Writes the confirmation sent back to the customer\nconst r = $('Check Duplicate').first().json;\nconst amt = r['Amount'] !== '' ? `₹${Number(r['Amount']).toLocaleString('en-IN')}` : 'your payment';\nconst when = r['Payment Date'] ? ` on ${DateTime.fromISO(r['Payment Date']).toFormat('d LLL yyyy')}` : '';\nconst txn = r['Txn ID'] ? ` (Txn ID ${r['Txn ID']})` : '';\nlet replyText;\nif (r['Review Status'].startsWith('Duplicate')) replyText = `This payment${txn} is already recorded. No need to send it again. 🙏`;\nelse if (r['Review Status'] === 'OK') replyText = `✅ Received ${amt}${when}${txn} via ${r['Payment App'] || 'UPI'}. Thank you!`;\nelse replyText = `Thanks, we got your screenshot for ${amt}${txn}. Our team will verify it and confirm shortly.`;\nreturn [{ json: { from: $('Parse Payment Details').first().json.from, replyText, row: r } }];"
+      }
+    },
+    {
+      "id": "r8",
+      "name": "Reply on WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        200
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.from }}",
+        "textBody": "={{ $json.replyText }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "id": "r9",
+      "name": "Reply: Not a Payment",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        420
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.from }}",
+        "textBody": "={{ \"Sorry, this doesn't look like a payment screenshot. Please send the payment confirmation screen from your UPI app.\" }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "id": "s1",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -120
+      ],
+      "parameters": {
+        "width": 3040,
+        "height": 260,
+        "color": 4,
+        "content": "## WhatsApp payment screenshot reader\nA customer sends a payment screenshot to the business WhatsApp number. n8n downloads it, Claude reads the amount, txn ID, date, payer mobile and notes, the row is appended to the Payments sheet (duplicates flagged), and the customer gets a confirmation.\n\nNeeded: WhatsApp OAuth (trigger), WhatsApp API (send), Header Auth `WhatsApp Bearer Token` (`Authorization: Bearer <token>`, to download images), Google Sheets, Anthropic API key. Replace `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID` in the 3 reply nodes. **Sheet:** one tab named `Payments` with the headers in `payments-sheet-template.xlsx` (Received At, Sender WhatsApp, Sender Name, Mobile Number, Payer Name, Amount, Txn ID, Payment Date, Payment Time, Payment App, Payment Status, Paid To, Comments, Review Status, Confidence, WhatsApp Message ID). Set the sheet ID in **Read Logged Payments** and **Append to Payments Sheet**."
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Has Screenshot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Screenshot?": {
+      "main": [
+        [
+          {
+            "node": "Get Media URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: Ask for Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Media URL": {
+      "main": [
+        [
+          {
+            "node": "Download Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Screenshot": {
+      "main": [
+        [
+          {
+            "node": "Attach Image Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Image Data": {
+      "main": [
+        [
+          {
+            "node": "Build Extraction Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Extraction Request": {
+      "main": [
+        [
+          {
+            "node": "Read Screenshot with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Screenshot with Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse Payment Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Payment Details": {
+      "main": [
+        [
+          {
+            "node": "Is Payment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Payment?": {
+      "main": [
+        [
+          {
+            "node": "Read Logged Payments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply: Not a Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Logged Payments": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Append to Payments Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Payments Sheet": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reply": {
+      "main": [
+        [
+          {
+            "node": "Reply on WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}
