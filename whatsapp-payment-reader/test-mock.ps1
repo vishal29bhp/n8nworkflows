@@ -22,11 +22,16 @@ $ErrorActionPreference = 'Stop'
 function Send-Message([string]$Phone, [string]$Name, [string]$Text, [string]$File = '') {
   $msg = @{ from = $Phone; id = "wamid.MOCK$(Get-Random)"; timestamp = "$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" }
   if ($File) {
+    $bytes = [IO.File]::ReadAllBytes((Resolve-Path $File))
+    # Set the type from the file's first bytes, not its name: a ".png" is often really a JPEG
+    $sig = ($bytes[0..3] | ForEach-Object { $_.ToString('X2') }) -join ''
     $mime = 'image/jpeg'
-    if ($File -like '*.png') { $mime = 'image/png' } elseif ($File -like '*.webp') { $mime = 'image/webp' }
+    if ($sig.StartsWith('89504E47')) { $mime = 'image/png' }
+    elseif ($sig.StartsWith('47494638')) { $mime = 'image/gif' }
+    elseif ($sig.StartsWith('52494646')) { $mime = 'image/webp' }
     $msg.type = 'image'
     $msg.image = @{ id = "MOCK_MEDIA_$(Get-Random)"; mime_type = $mime; sha256 = 'mock'; caption = $Text
-                    mock_base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $File))) }
+                    mock_base64 = [Convert]::ToBase64String($bytes) }
   } else {
     $msg.type = 'text'
     $msg.text = @{ body = $Text }

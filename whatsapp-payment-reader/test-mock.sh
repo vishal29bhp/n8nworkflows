@@ -22,8 +22,11 @@ send() {
   local phone="$1" name="$2" caption="$3" file="${4:-}"
   local msg
   if [ -n "$file" ]; then
+    # Set the type from the file's first bytes, not its name: a ".png" is often really a JPEG
     local mime="image/jpeg"
-    case "$file" in *.png) mime="image/png" ;; *.webp) mime="image/webp" ;; esac
+    case "$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')" in
+      89504e47*) mime="image/png" ;; 47494638*) mime="image/gif" ;; 52494646*) mime="image/webp" ;;
+    esac
     msg=$(cat <<JSON
 "type": "image",
           "image": {
