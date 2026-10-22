@@ -2,15 +2,17 @@
 # WhatsApp image messages and prints the confirmation the customer would get plus the row written to the sheet.
 # Works in Windows PowerShell 5.1 (built into Windows 10/11) and PowerShell 7.
 #
-# Usage (from this folder):
-#   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 <webhook-url>
-#   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 <webhook-url> C:\path\to\screenshot.jpg "caption"
+# Usage (run from the whatsapp-payment-reader folder, or give the full path to this script):
+#   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1                                     # all samples, default URL
+#   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 -Image C:\path\to\screenshot.png -Caption "note"
+#   powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 <webhook-url> [screenshot] [caption]
 #
 # Webhook URL (from the "Mock WhatsApp Webhook" node):
-#   test URL:       http://localhost:5678/webhook-test/whatsapp-payment-mock  (click "Listen for test event" first, one message per click)
-#   production URL: http://localhost:5678/webhook/whatsapp-payment-mock       (workflow must be Active)
+#   production URL: https://qcai.app.n8n.cloud/webhook/whatsapp-payment-mock       (default; workflow must be Active/Published)
+#   test URL:       https://qcai.app.n8n.cloud/webhook-test/whatsapp-payment-mock  (click "Listen for test event" first, one message per click)
+#   local n8n:      http://localhost:5678/webhook/whatsapp-payment-mock
 param(
-  [string]$Url = 'http://localhost:5678/webhook/whatsapp-payment-mock',
+  [string]$Url = 'https://qcai.app.n8n.cloud/webhook/whatsapp-payment-mock',
   [string]$Image = '',
   [string]$Caption = ''
 )

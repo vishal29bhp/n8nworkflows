@@ -78,7 +78,17 @@ Click the **Inactive / Active** toggle at the top (called **Publish** in newer n
 `http://localhost:5678/webhook/whatsapp-payment-mock`.
 
 ### 8. Run the demo
-Open a **second** terminal in VS Code (the **+** in the terminal panel) and leave n8n running in the first one:
+> **Using n8n Cloud (`qcai.app.n8n.cloud`)?** The scripts already point at it, so from the repo folder just run:
+> ```powershell
+> cd whatsapp-payment-reader
+> powershell -ExecutionPolicy Bypass -File .\test-mock.ps1
+> powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 -Image .\samples\vishal.png -Caption "Transport and Match Fee"
+> ```
+> The first sends all the samples, the second one screenshot of your own. The workflow must be **Active/Published** for this URL. To use the *webhook-test* URL instead, click **Execute workflow / Listen for test event** in n8n first and send one message at a time: add `-Url https://qcai.app.n8n.cloud/webhook-test/whatsapp-payment-mock`.
+>
+> The `cd whatsapp-payment-reader` matters: `.\test-mock.ps1` means "in this folder", so running it from the repo root gives *"The argument '.\test-mock.ps1' ... does not exist"*.
+
+Local n8n: open a **second** terminal in VS Code (the **+** in the terminal panel) and leave n8n running in the first one:
 ```powershell
 cd whatsapp-payment-reader
 powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 http://localhost:5678/webhook/whatsapp-payment-mock
@@ -101,12 +111,15 @@ Running the samples again adds them as *Duplicate* rows, because the Txn IDs are
 | Google error `redirect_uri_mismatch` | The redirect URI in step 4.4 must match exactly what n8n shows in the credential window |
 | Sheet error *Sheet with name Payments not found* | The tab must be named `Payments`, and the ID must be from the Google Sheet, not the uploaded .xlsx |
 | Port 5678 already in use | n8n is already running in another terminal; use that one |
+| *The argument '.\test-mock.ps1' to the -File parameter does not exist* | You're in the wrong folder. Run `cd whatsapp-payment-reader` first, or use the full path: `-File .\whatsapp-payment-reader\test-mock.ps1` |
+| Only the first message works with a *webhook-test* URL | Test URLs accept one call per click on *Listen for test event*. Use the production URL (`/webhook/`, workflow Active) for the full run |
 
 ### Alternative: n8n Cloud (no install)
 Sign up at n8n.io (there's a free trial). Steps 1 and 2 go away, and in step 4 you just click **Sign in with Google** on the Google Sheets credential, with no Google Cloud project. Do steps 3, 5, 6 and 7 the same way. Then run the test script with your cloud address instead of localhost:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 https://<your-name>.app.n8n.cloud/webhook/whatsapp-payment-mock
+powershell -ExecutionPolicy Bypass -File .\test-mock.ps1 -Url https://<your-name>.app.n8n.cloud/webhook/whatsapp-payment-mock
 ```
+(For `qcai.app.n8n.cloud` this is already the default, so `-Url` can be left out.)
 You need n8n Cloud, or another public HTTPS address, later anyway for real WhatsApp, because Meta can't reach `localhost`.
 
 ## The spreadsheet
