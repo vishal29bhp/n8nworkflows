@@ -2,51 +2,44 @@
   "name": "WhatsApp Payment Screenshot Reader (MOCK - no WhatsApp needed)",
   "nodes": [
     {
-      "id": "m1",
-      "name": "Mock WhatsApp Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        -220,
-        300
-      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "whatsapp-payment-mock",
         "responseMode": "responseNode",
         "options": {}
       },
+      "id": "e7dd2cee-5c9c-4151-8c03-866ba21c9300",
+      "name": "Mock WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        432
+      ],
       "webhookId": "whatsapp-payment-mock"
     },
     {
-      "id": "m2",
+      "parameters": {
+        "jsCode": "// The mock webhook receives the exact JSON Meta sends to a real WhatsApp webhook.\n// For the demo, the image is included as image.mock_base64 because there is no Meta server to download it from.\nconst body = $input.first().json.body || {};\nconst value = body.entry?.[0]?.changes?.[0]?.value;\nif (!value) {\n  throw new Error('Payload is not in WhatsApp webhook format. See test-mock.sh for examples.');\n}\n// Turn a WhatsApp message into the fields the rest of the flow needs.\nconst m = value.messages?.[0];\nif (!m) return []; // delivery/read receipts carry no message: nothing to do\nconst contact = value.contacts?.[0] || {};\n// Screenshots usually arrive as an image; some people send them as a document\nconst media = m.image || (m.document?.mime_type?.startsWith('image/') ? m.document : null);\nconst ts = Number(m.timestamp) || Math.floor(Date.now() / 1000);\nreturn [{ json: {\n  from: m.from,\n  senderName: contact.profile?.name || '',\n  messageId: m.id,\n  receivedAt: DateTime.fromSeconds(ts).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss'),\n  hasImage: !!media,\n  mediaId: media?.id || '',\n  mimeType: media?.mime_type || 'image/jpeg',\n  caption: media?.caption || m.text?.body || '',\n  imageBase64: media?.mock_base64 || '' // mock only: the real flow downloads the image from WhatsApp\n} }];"
+      },
+      "id": "d60e301e-573c-4906-bf58-1dd2df8010c7",
       "name": "Unwrap WhatsApp Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        0,
-        300
+        272,
+        432
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// The mock webhook receives the exact JSON Meta sends to a real WhatsApp webhook.\n// For the demo, the image is included as image.mock_base64 because there is no Meta server to download it from.\nconst body = $input.first().json.body || {};\nconst value = body.entry?.[0]?.changes?.[0]?.value;\nif (!value) {\n  throw new Error('Payload is not in WhatsApp webhook format. See test-mock.sh for examples.');\n}\n// Turn a WhatsApp message into the fields the rest of the flow needs.\nconst m = value.messages?.[0];\nif (!m) return []; // delivery/read receipts carry no message: nothing to do\nconst contact = value.contacts?.[0] || {};\n// Screenshots usually arrive as an image; some people send them as a document\nconst media = m.image || (m.document?.mime_type?.startsWith('image/') ? m.document : null);\nconst ts = Number(m.timestamp) || Math.floor(Date.now() / 1000);\nreturn [{ json: {\n  from: m.from,\n  senderName: contact.profile?.name || '',\n  messageId: m.id,\n  receivedAt: DateTime.fromSeconds(ts).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss'),\n  hasImage: !!media,\n  mediaId: media?.id || '',\n  mimeType: media?.mime_type || 'image/jpeg',\n  caption: media?.caption || m.text?.body || '',\n  imageBase64: media?.mock_base64 || '' // mock only: the real flow downloads the image from WhatsApp\n} }];"
-      }
+      "alwaysOutputData": true
     },
     {
-      "id": "m3",
-      "name": "Has Screenshot?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        220,
-        300
-      ],
       "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -63,46 +56,47 @@
           "combinator": "and"
         },
         "options": {}
-      }
+      },
+      "id": "0800cdcd-5c7b-422c-81e8-fd49dbd67a2d",
+      "name": "Has Screenshot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        432
+      ],
+      "alwaysOutputData": true
     },
     {
-      "id": "m4",
-      "name": "Mock Reply: Ask for Screenshot",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        440,
-        520
-      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({\n  mock: true,\n  note: 'This is the request that would be sent to the WhatsApp Cloud API',\n  messaging_product: 'whatsapp',\n  to: $('Unwrap WhatsApp Payload').first().json.from,\n  type: 'text',\n  text: { body: \"Hi! Please send the payment screenshot as an image (you can add a note like the name or purpose in the caption).\" }\n}, null, 2) }}",
         "options": {}
-      }
+      },
+      "id": "2c7e9272-2f67-4749-a372-6461445073cb",
+      "name": "Mock Reply: Ask for Screenshot",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        704,
+        640
+      ]
     },
     {
-      "id": "p1",
+      "parameters": {
+        "jsCode": "// Builds the Claude vision request. The prompt lives in prompts/payment-screenshot-extraction.md\nconst MODEL = 'claude-sonnet-5-5'; // or 'claude-haiku-5-5' for lower cost\nconst SYSTEM_PROMPT = `**R (Role)**\nYou are a meticulous payments reconciliation assistant for an Indian business. You read UPI and wallet payment screenshots from any app (Google Pay, PhonePe, Paytm, WhatsApp Pay, CRED, BHIM, Amazon Pay, bank apps) and copy the details exactly as shown.\n\n**C (Context)**\nCustomers send a screenshot of their payment on WhatsApp, sometimes with a caption such as \"Aarav October fees\". Each app lays out the same facts differently: the UPI transaction ID may be called \"UPI Ref No\", \"UTR\", \"UPI transaction ID\" or \"Transaction ref\", and the date may be \"22 Oct 2026, 10:41 am\", \"22-10-2026 09:55\" or \"21/10/2026\". Your output is written straight into an accounts spreadsheet, so a wrong value is worse than a blank one.\n\n**T (Task)**\n1. Decide whether the image is a payment confirmation screenshot.\n2. If it is, extract: amount, payment status, payer name, payer mobile number, payer UPI ID, payee name, payee UPI ID, transaction ID, any other reference number, payment date and time, the app used, and any note written in the screenshot.\n3. Use the caption only to fill gaps (for example a note), never to override what the screenshot shows.\n\n**F (Format)**\nReply with one JSON object and nothing else:\n\\`\\`\\`json\n{\n  \"is_payment_screenshot\": true,\n  \"payment_app\": \"Google Pay | PhonePe | Paytm | WhatsApp Pay | CRED | BHIM | Amazon Pay | Bank app | Other\",\n  \"payment_status\": \"Success | Pending | Failed | Unknown\",\n  \"amount\": 1500.00,\n  \"payer_name\": \"Rahul Verma\",\n  \"payer_mobile\": \"9876501234\",\n  \"payer_upi_id\": null,\n  \"payee_name\": \"Sunrise Cricket Academy\",\n  \"payee_upi_id\": \"sunrisecricket@okaxis\",\n  \"transaction_id\": \"629514873201\",\n  \"other_reference\": \"CICAgKD9xLmQBg\",\n  \"payment_date\": \"2026-10-22\",\n  \"payment_time\": \"10:41\",\n  \"note_in_screenshot\": \"Aarav U12 October fees\",\n  \"confidence\": \"high | medium | low\",\n  \"issues\": \"short note on anything unreadable, cut off or suspicious, else null\"\n}\n\\`\\`\\`\n\n**C (Constraints)**\n- Never guess. If a field is not visible, use \\`null\\`.\n- \\`amount\\`: a number in rupees, without the ₹ sign or commas.\n- \\`transaction_id\\`: prefer the 12-digit UPI reference (UPI transaction ID, UPI Ref No, UTR). Put any app-specific ID (for example a PhonePe \"T…\" ID or a Google transaction ID) in \\`other_reference\\`. If there is no UPI reference, use the app's ID as \\`transaction_id\\`.\n- \\`payer_mobile\\`: only a number shown as the payer's or sender's. 10 digits, no +91, no spaces. Never use the payee's number.\n- Payer is the person who paid (From, Debited from, Paid by). Payee is who received it (To, Paid to).\n- Dates as \\`YYYY-MM-DD\\`, times as 24-hour \\`HH:mm\\`. Dates in screenshots are day-first (Indian format).\n- \\`payment_status\\` is \\`Success\\` only when the screenshot clearly says successful, completed or paid.\n- \\`confidence\\` is \\`low\\` if the image is blurry, cropped, edited-looking, or key fields are missing.\n- If it is not a payment screenshot, return \\`is_payment_screenshot: false\\` with every other field \\`null\\` and a short reason in \\`issues\\`.`;\n\nconst msg = $('Unwrap WhatsApp Payload').first().json;\n// Use the real image type from the file's first bytes: a file named .png is often a JPEG\nconst sniff = { '/9j/': 'image/jpeg', 'iVBOR': 'image/png', 'R0lGOD': 'image/gif', 'UklGR': 'image/webp' };\nconst detected = Object.entries(sniff).find(([prefix]) => msg.imageBase64.startsWith(prefix))?.[1];\nconst supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];\nconst mediaType = detected || (supported.includes(msg.mimeType) ? msg.mimeType : 'image/jpeg');\n\nreturn [{ json: { body: {\n  model: MODEL,\n  max_tokens: 1024,\n  system: SYSTEM_PROMPT,\n  messages: [{ role: 'user', content: [\n    { type: 'image', source: { type: 'base64', media_type: mediaType, data: msg.imageBase64 } },\n    { type: 'text', text: `WhatsApp caption sent with the screenshot: ${msg.caption ? JSON.stringify(msg.caption) : '(none)'}\\nReceived on WhatsApp at ${msg.receivedAt} IST.\\nExtract the payment details as instructed. Reply with the JSON object only.` }\n  ] }]\n} } }];"
+      },
+      "id": "817581f6-965d-40a3-bb05-18c90f32005c",
       "name": "Build Extraction Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        440,
-        300
+        704,
+        432
       ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Builds the Claude vision request. The prompt lives in prompts/payment-screenshot-extraction.md\nconst MODEL = 'claude-sonnet-5-5'; // or 'claude-haiku-5-5' for lower cost\nconst SYSTEM_PROMPT = `**R (Role)**\nYou are a meticulous payments reconciliation assistant for an Indian business. You read UPI and wallet payment screenshots from any app (Google Pay, PhonePe, Paytm, WhatsApp Pay, CRED, BHIM, Amazon Pay, bank apps) and copy the details exactly as shown.\n\n**C (Context)**\nCustomers send a screenshot of their payment on WhatsApp, sometimes with a caption such as \"Aarav October fees\". Each app lays out the same facts differently: the UPI transaction ID may be called \"UPI Ref No\", \"UTR\", \"UPI transaction ID\" or \"Transaction ref\", and the date may be \"22 Oct 2026, 10:41 am\", \"22-10-2026 09:55\" or \"21/10/2026\". Your output is written straight into an accounts spreadsheet, so a wrong value is worse than a blank one.\n\n**T (Task)**\n1. Decide whether the image is a payment confirmation screenshot.\n2. If it is, extract: amount, payment status, payer name, payer mobile number, payer UPI ID, payee name, payee UPI ID, transaction ID, any other reference number, payment date and time, the app used, and any note written in the screenshot.\n3. Use the caption only to fill gaps (for example a note), never to override what the screenshot shows.\n\n**F (Format)**\nReply with one JSON object and nothing else:\n\\`\\`\\`json\n{\n  \"is_payment_screenshot\": true,\n  \"payment_app\": \"Google Pay | PhonePe | Paytm | WhatsApp Pay | CRED | BHIM | Amazon Pay | Bank app | Other\",\n  \"payment_status\": \"Success | Pending | Failed | Unknown\",\n  \"amount\": 1500.00,\n  \"payer_name\": \"Rahul Verma\",\n  \"payer_mobile\": \"9876501234\",\n  \"payer_upi_id\": null,\n  \"payee_name\": \"Sunrise Cricket Academy\",\n  \"payee_upi_id\": \"sunrisecricket@okaxis\",\n  \"transaction_id\": \"629514873201\",\n  \"other_reference\": \"CICAgKD9xLmQBg\",\n  \"payment_date\": \"2026-10-22\",\n  \"payment_time\": \"10:41\",\n  \"note_in_screenshot\": \"Aarav U12 October fees\",\n  \"confidence\": \"high | medium | low\",\n  \"issues\": \"short note on anything unreadable, cut off or suspicious, else null\"\n}\n\\`\\`\\`\n\n**C (Constraints)**\n- Never guess. If a field is not visible, use \\`null\\`.\n- \\`amount\\`: a number in rupees, without the ₹ sign or commas.\n- \\`transaction_id\\`: prefer the 12-digit UPI reference (UPI transaction ID, UPI Ref No, UTR). Put any app-specific ID (for example a PhonePe \"T…\" ID or a Google transaction ID) in \\`other_reference\\`. If there is no UPI reference, use the app's ID as \\`transaction_id\\`.\n- \\`payer_mobile\\`: only a number shown as the payer's or sender's. 10 digits, no +91, no spaces. Never use the payee's number.\n- Payer is the person who paid (From, Debited from, Paid by). Payee is who received it (To, Paid to).\n- Dates as \\`YYYY-MM-DD\\`, times as 24-hour \\`HH:mm\\`. Dates in screenshots are day-first (Indian format).\n- \\`payment_status\\` is \\`Success\\` only when the screenshot clearly says successful, completed or paid.\n- \\`confidence\\` is \\`low\\` if the image is blurry, cropped, edited-looking, or key fields are missing.\n- If it is not a payment screenshot, return \\`is_payment_screenshot: false\\` with every other field \\`null\\` and a short reason in \\`issues\\`.`;\n\nconst msg = $('Unwrap WhatsApp Payload').first().json;\n// Use the real image type from the file's first bytes: a file named .png is often a JPEG\nconst sniff = { '/9j/': 'image/jpeg', 'iVBOR': 'image/png', 'R0lGOD': 'image/gif', 'UklGR': 'image/webp' };\nconst detected = Object.entries(sniff).find(([prefix]) => msg.imageBase64.startsWith(prefix))?.[1];\nconst supported = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];\nconst mediaType = detected || (supported.includes(msg.mimeType) ? msg.mimeType : 'image/jpeg');\n\nreturn [{ json: { body: {\n  model: MODEL,\n  max_tokens: 1024,\n  system: SYSTEM_PROMPT,\n  messages: [{ role: 'user', content: [\n    { type: 'image', source: { type: 'base64', media_type: mediaType, data: msg.imageBase64 } },\n    { type: 'text', text: `WhatsApp caption sent with the screenshot: ${msg.caption ? JSON.stringify(msg.caption) : '(none)'}\\nReceived on WhatsApp at ${msg.receivedAt} IST.\\nExtract the payment details as instructed. Reply with the JSON object only.` }\n  ] }]\n} } }];"
-      }
+      "alwaysOutputData": true
     },
     {
-      "id": "p2",
-      "name": "Read Screenshot with Claude",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        660,
-        300
-      ],
       "parameters": {
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
@@ -128,7 +122,14 @@
           "timeout": 60000
         }
       },
-      "onError": "continueRegularOutput",
+      "id": "b9a3a37e-3bcc-47fd-b945-069a328b0e3c",
+      "name": "Read Screenshot with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        928,
+        432
+      ],
       "retryOnFail": true,
       "maxTries": 2,
       "credentials": {
@@ -136,37 +137,30 @@
           "id": "",
           "name": "Anthropic API Key"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
-      "id": "p3",
+      "parameters": {
+        "jsCode": "// Reads Claude's JSON and shapes the spreadsheet row and the WhatsApp reply.\n// Optional: words that must appear in the payee name or UPI ID, e.g. ['sunrise']. Leave [] to accept any payee.\nconst EXPECTED_PAYEE = [];\n\nconst msg = $('Unwrap WhatsApp Payload').first().json;\nconst text = $input.first().json.content?.[0]?.text || '';\nlet x = null;\ntry {\n  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);\n  x = JSON.parse(json);\n} catch (e) { x = null; }\n\nconst has = v => v !== undefined && v !== null && String(v).trim() !== '';\nconst digits = v => String(v || '').replace(/\\D/g, '').replace(/^(91|0)(?=\\d{10}$)/, '');\nconst sender = digits(msg.from);\n\n// Claude unreachable or unreadable answer: still log it so nothing is lost\nconst unread = !x;\nif (unread) x = { is_payment_screenshot: true, confidence: 'low' };\nif (x.is_payment_screenshot === false) {\n  return [{ json: { isPayment: false, from: msg.from, reason: x.issues || '' } }];\n}\n\nconst mobile = digits(x.payer_mobile);\nconst amount = has(x.amount) ? Number(String(x.amount).replace(/[^\\d.]/g, '')) : null;\nconst status = x.payment_status || 'Unknown';\nconst payee = [x.payee_name, x.payee_upi_id].filter(has).join(' ');\n\nconst review = [];\nif (unread) review.push('could not read the screenshot automatically');\nelse if (status !== 'Success') review.push(`payment ${status.toLowerCase()}`);\nif (!unread && !amount) review.push('amount missing');\nif (!unread && !has(x.transaction_id)) review.push('txn ID missing');\nif (!unread && x.confidence === 'low') review.push('low confidence');\nif (EXPECTED_PAYEE.length && !EXPECTED_PAYEE.some(w => payee.toLowerCase().includes(w.toLowerCase()))) review.push('paid to someone else');\nif (has(x.issues) && x.confidence !== 'high') review.push(x.issues);\n\nconst comments = [\n  has(x.note_in_screenshot) && `Note: ${x.note_in_screenshot}`,\n  has(msg.caption) && `Message: ${msg.caption}`,\n  has(x.other_reference) && `Other ref: ${x.other_reference}`\n].filter(Boolean).join(' | ');\n\nconst row = {\n  'Received At': msg.receivedAt,\n  'Sender WhatsApp': sender,\n  'Sender Name': msg.senderName,\n  'Mobile Number': mobile.length === 10 ? mobile : sender,\n  'Payer Name': x.payer_name || '',\n  'Amount': amount ?? '',\n  'Txn ID': x.transaction_id ? String(x.transaction_id).replace(/\\s/g, '') : '',\n  'Payment Date': x.payment_date || '',\n  'Payment Time': x.payment_time || '',\n  'Payment App': x.payment_app || '',\n  'Payment Status': status,\n  'Paid To': payee,\n  'Comments': comments,\n  'Review Status': review.length ? `Needs review: ${review.join(', ')}` : 'OK',\n  'Confidence': x.confidence || '',\n  'WhatsApp Message ID': msg.messageId\n};\nreturn [{ json: { isPayment: true, from: msg.from, row } }];"
+      },
+      "id": "c5be1b65-0fa9-4db8-a9f3-82f5b9c2913d",
       "name": "Parse Payment Details",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        300
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Reads Claude's JSON and shapes the spreadsheet row and the WhatsApp reply.\n// Optional: words that must appear in the payee name or UPI ID, e.g. ['sunrise']. Leave [] to accept any payee.\nconst EXPECTED_PAYEE = [];\n\nconst msg = $('Unwrap WhatsApp Payload').first().json;\nconst text = $input.first().json.content?.[0]?.text || '';\nlet x = null;\ntry {\n  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);\n  x = JSON.parse(json);\n} catch (e) { x = null; }\n\nconst has = v => v !== undefined && v !== null && String(v).trim() !== '';\nconst digits = v => String(v || '').replace(/\\D/g, '').replace(/^(91|0)(?=\\d{10}$)/, '');\nconst sender = digits(msg.from);\n\n// Claude unreachable or unreadable answer: still log it so nothing is lost\nconst unread = !x;\nif (unread) x = { is_payment_screenshot: true, confidence: 'low' };\nif (x.is_payment_screenshot === false) {\n  return [{ json: { isPayment: false, from: msg.from, reason: x.issues || '' } }];\n}\n\nconst mobile = digits(x.payer_mobile);\nconst amount = has(x.amount) ? Number(String(x.amount).replace(/[^\\d.]/g, '')) : null;\nconst status = x.payment_status || 'Unknown';\nconst payee = [x.payee_name, x.payee_upi_id].filter(has).join(' ');\n\nconst review = [];\nif (unread) review.push('could not read the screenshot automatically');\nelse if (status !== 'Success') review.push(`payment ${status.toLowerCase()}`);\nif (!unread && !amount) review.push('amount missing');\nif (!unread && !has(x.transaction_id)) review.push('txn ID missing');\nif (!unread && x.confidence === 'low') review.push('low confidence');\nif (EXPECTED_PAYEE.length && !EXPECTED_PAYEE.some(w => payee.toLowerCase().includes(w.toLowerCase()))) review.push('paid to someone else');\nif (has(x.issues) && x.confidence !== 'high') review.push(x.issues);\n\nconst comments = [\n  has(x.note_in_screenshot) && `Note: ${x.note_in_screenshot}`,\n  has(msg.caption) && `Message: ${msg.caption}`,\n  has(x.other_reference) && `Other ref: ${x.other_reference}`\n].filter(Boolean).join(' | ');\n\nconst row = {\n  'Received At': msg.receivedAt,\n  'Sender WhatsApp': sender,\n  'Sender Name': msg.senderName,\n  'Mobile Number': mobile.length === 10 ? mobile : sender,\n  'Payer Name': x.payer_name || '',\n  'Amount': amount ?? '',\n  'Txn ID': x.transaction_id ? String(x.transaction_id).replace(/\\s/g, '') : '',\n  'Payment Date': x.payment_date || '',\n  'Payment Time': x.payment_time || '',\n  'Payment App': x.payment_app || '',\n  'Payment Status': status,\n  'Paid To': payee,\n  'Comments': comments,\n  'Review Status': review.length ? `Needs review: ${review.join(', ')}` : 'OK',\n  'Confidence': x.confidence || '',\n  'WhatsApp Message ID': msg.messageId\n};\nreturn [{ json: { isPayment: true, from: msg.from, row } }];"
-      }
+        1152,
+        432
+      ]
     },
     {
-      "id": "p4",
-      "name": "Is Payment?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        1100,
-        300
-      ],
       "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -183,18 +177,19 @@
           "combinator": "and"
         },
         "options": {}
-      }
+      },
+      "id": "3b52f9a0-0184-4dca-81c2-1f93aa582404",
+      "name": "Is Payment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        432
+      ]
     },
     {
-      "id": "p5",
-      "name": "Read Logged Payments",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        1320,
-        200
-      ],
       "parameters": {
+        "operation": "read",
         "documentId": {
           "__rl": true,
           "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
@@ -207,6 +202,14 @@
         },
         "options": {}
       },
+      "id": "6219aac3-bfc4-4d14-8e07-a21039349a8a",
+      "name": "Read Logged Payments",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1584,
+        320
+      ],
       "alwaysOutputData": true,
       "credentials": {
         "googleSheetsOAuth2Api": {
@@ -216,29 +219,21 @@
       }
     },
     {
-      "id": "p6",
+      "parameters": {
+        "jsCode": "// Marks the row as a duplicate if the same Txn ID is already in the sheet, then outputs just the row to append.\nconst { row } = $('Parse Payment Details').first().json;\nconst logged = $input.all().map(i => i.json).filter(r => r && r['Txn ID']);\nconst earlier = row['Txn ID'] && logged.find(r => String(r['Txn ID']) === String(row['Txn ID']));\nif (earlier) row['Review Status'] = `Duplicate of payment logged at ${earlier['Received At']}`;\nreturn [{ json: row }];"
+      },
+      "id": "010735dd-de44-4d10-bcc4-7a757a99a69d",
       "name": "Check Duplicate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
-        200
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Marks the row as a duplicate if the same Txn ID is already in the sheet, then outputs just the row to append.\nconst { row } = $('Parse Payment Details').first().json;\nconst logged = $input.all().map(i => i.json).filter(r => r && r['Txn ID']);\nconst earlier = row['Txn ID'] && logged.find(r => String(r['Txn ID']) === String(row['Txn ID']));\nif (earlier) row['Review Status'] = `Duplicate of payment logged at ${earlier['Received At']}`;\nreturn [{ json: row }];"
-      }
+        1808,
+        320
+      ]
     },
     {
-      "id": "p7",
-      "name": "Append to Payments Sheet",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        1760,
-        200
-      ],
       "parameters": {
+        "operation": "append",
         "documentId": {
           "__rl": true,
           "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
@@ -249,15 +244,170 @@
           "value": "Payments",
           "mode": "name"
         },
-        "options": {},
-        "operation": "append",
         "columns": {
           "mappingMode": "autoMapInputData",
           "value": {},
           "matchingColumns": [],
-          "schema": []
-        }
+          "schema": [
+            {
+              "id": "Received At",
+              "displayName": "Received At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sender WhatsApp",
+              "displayName": "Sender WhatsApp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sender Name",
+              "displayName": "Sender Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Mobile Number",
+              "displayName": "Mobile Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payer Name",
+              "displayName": "Payer Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Amount",
+              "displayName": "Amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Txn ID",
+              "displayName": "Txn ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Date",
+              "displayName": "Payment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Time",
+              "displayName": "Payment Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment App",
+              "displayName": "Payment App",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Payment Status",
+              "displayName": "Payment Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Paid To",
+              "displayName": "Paid To",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Comments",
+              "displayName": "Comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Review Status",
+              "displayName": "Review Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Confidence",
+              "displayName": "Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "WhatsApp Message ID",
+              "displayName": "WhatsApp Message ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
       },
+      "id": "d0a2383d-78ff-435b-8557-c1f032ef57c4",
+      "name": "Append to Payments Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2032,
+        320
+      ],
+      "alwaysOutputData": true,
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "",
@@ -266,48 +416,47 @@
       }
     },
     {
-      "id": "p8",
+      "parameters": {
+        "jsCode": "// Writes the confirmation sent back to the customer\nconst r = $('Check Duplicate').first().json;\nconst amt = r['Amount'] !== '' ? `₹${Number(r['Amount']).toLocaleString('en-IN')}` : 'your payment';\nconst when = r['Payment Date'] ? ` on ${DateTime.fromISO(r['Payment Date']).toFormat('d LLL yyyy')}` : '';\nconst txn = r['Txn ID'] ? ` (Txn ID ${r['Txn ID']})` : '';\nlet replyText;\nif (r['Review Status'].startsWith('Duplicate')) replyText = `This payment${txn} is already recorded. No need to send it again. 🙏`;\nelse if (r['Review Status'] === 'OK') replyText = `✅ Received ${amt}${when}${txn} via ${r['Payment App'] || 'UPI'}. Thank you!`;\nelse replyText = `Thanks, we got your screenshot for ${amt}${txn}. Our team will verify it and confirm shortly.`;\nreturn [{ json: { from: $('Parse Payment Details').first().json.from, replyText, row: r } }];"
+      },
+      "id": "5479c770-4650-4968-a1ce-d7f3db803381",
       "name": "Build Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1980,
-        200
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// Writes the confirmation sent back to the customer\nconst r = $('Check Duplicate').first().json;\nconst amt = r['Amount'] !== '' ? `₹${Number(r['Amount']).toLocaleString('en-IN')}` : 'your payment';\nconst when = r['Payment Date'] ? ` on ${DateTime.fromISO(r['Payment Date']).toFormat('d LLL yyyy')}` : '';\nconst txn = r['Txn ID'] ? ` (Txn ID ${r['Txn ID']})` : '';\nlet replyText;\nif (r['Review Status'].startsWith('Duplicate')) replyText = `This payment${txn} is already recorded. No need to send it again. 🙏`;\nelse if (r['Review Status'] === 'OK') replyText = `✅ Received ${amt}${when}${txn} via ${r['Payment App'] || 'UPI'}. Thank you!`;\nelse replyText = `Thanks, we got your screenshot for ${amt}${txn}. Our team will verify it and confirm shortly.`;\nreturn [{ json: { from: $('Parse Payment Details').first().json.from, replyText, row: r } }];"
-      }
+        2240,
+        320
+      ]
     },
     {
-      "id": "m5",
-      "name": "Mock WhatsApp Reply",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        2200,
-        200
-      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({\n  mock: true,\n  note: 'This is the request that would be sent to the WhatsApp Cloud API',\n  messaging_product: 'whatsapp',\n  to: $json.from,\n  type: 'text',\n  text: { body: $json.replyText },\n  logged_row: $json.row\n}, null, 2) }}",
         "options": {}
-      }
-    },
-    {
-      "id": "m6",
-      "name": "Mock Reply: Not a Payment",
+      },
+      "id": "c76c060e-8e62-4050-adb4-eceb0fdc7592",
+      "name": "Mock WhatsApp Reply",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1320,
-        420
-      ],
+        2464,
+        320
+      ]
+    },
+    {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({\n  mock: true,\n  note: 'This is the request that would be sent to the WhatsApp Cloud API',\n  messaging_product: 'whatsapp',\n  to: $json.from,\n  type: 'text',\n  text: { body: \"Sorry, this doesn't look like a payment screenshot. Please send the payment confirmation screen from your UPI app.\" }\n}, null, 2) }}",
         "options": {}
-      }
+      },
+      "id": "42010d98-c64f-44a1-914b-fc8863bed927",
+      "name": "Mock Reply: Not a Payment",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1584,
+        544
+      ]
     },
     {
       "id": "s1",
@@ -326,6 +475,7 @@
       }
     }
   ],
+  "pinData": {},
   "connections": {
     "Mock WhatsApp Webhook": {
       "main": [
@@ -463,10 +613,11 @@
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "pinData": {},
   "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
   "tags": []
 }
