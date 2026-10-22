@@ -17,6 +17,7 @@ WhatsApp image message → Has Screenshot? → Download image → Claude reads i
 | `payments-sheet-template.xlsx` | The Payments sheet with all headers. Upload to Google Drive and open as a Google Sheet |
 | `samples/` | 6 fake payment screenshots for the demo (watermarked "DEMO SAMPLE") and the script that made them |
 | `test-mock.sh` / `test-mock.ps1` | Sends the sample screenshots to the mock workflow and prints the reply and the logged row (`.sh` for Mac/Linux/Git Bash, `.ps1` for Windows PowerShell) |
+| [`COSTS.md`](COSTS.md) | Monthly running costs for WhatsApp, Claude and n8n (250 screenshots a month), in ₹ and $ |
 | [`../prompts/payment-screenshot-extraction.md`](../prompts/payment-screenshot-extraction.md) | The RCTFC extraction prompt Claude uses |
 
 ## Windows step by step: run the demo from VS Code
@@ -225,7 +226,7 @@ In n8n create a **Google Sheets OAuth2** credential named `Google Sheets account
 4. Replace `PASTE_YOUR_WHATSAPP_PHONE_NUMBER_ID` in **Reply on WhatsApp**, **Reply: Ask for Screenshot** and **Reply: Not a Payment**.
 5. Activate the workflow. n8n registers the webhook with Meta. n8n must be reachable over public HTTPS.
 
-Replying within 24 hours of the customer's message is free and needs no template approval.
+Replying within 24 hours of the customer's message needs no template approval. Since 1 Oct 2026 these replies are no longer unlimited and free: each business number gets 1,000 free a month, then ₹0.115 each in India. See [COSTS.md](COSTS.md).
 
 ### 4. Claude API key
 1. Get a key at console.anthropic.com.
