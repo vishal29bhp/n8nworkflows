@@ -7,11 +7,12 @@
 #   ./test-mock.sh <webhook-url> path/to/screenshot.jpg ["caption"]  # your own screenshot
 #
 # Webhook URL (from the "Mock WhatsApp Webhook" node):
-#   test URL:       http://localhost:5678/webhook-test/whatsapp-payment-mock  (click "Listen for test event" first, one message per click)
-#   production URL: http://localhost:5678/webhook/whatsapp-payment-mock       (workflow must be Active)
+#   production URL: https://qcai.app.n8n.cloud/webhook/whatsapp-payment-mock       (default; workflow must be Active/Published)
+#   test URL:       https://qcai.app.n8n.cloud/webhook-test/whatsapp-payment-mock  (click "Listen for test event" first, one message per click)
+#   local n8n:      http://localhost:5678/webhook/whatsapp-payment-mock
 set -euo pipefail
 
-URL="${1:-http://localhost:5678/webhook/whatsapp-payment-mock}"
+URL="${1:-https://qcai.app.n8n.cloud/webhook/whatsapp-payment-mock}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
