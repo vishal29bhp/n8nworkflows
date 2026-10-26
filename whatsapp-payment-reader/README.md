@@ -107,7 +107,7 @@ Running the samples again adds them as *Duplicate* rows, because the Txn IDs are
 |---|---|
 | `npx` is not recognized | Node.js isn't installed, or VS Code was open during the install. Reinstall Node and restart VS Code |
 | `404` / *webhook is not registered* | The workflow isn't active (step 7), or the URL has a typo |
-| Reply says "our team will verify" for every screenshot, and the row says *could not read the screenshot automatically* | Claude call failed. Open the execution → **Read Screenshot with Claude** to see why: usually a wrong key, the credential name isn't `x-api-key`, or no credit on the Anthropic account |
+| Reply says "our team will verify" for every screenshot, and the row says *could not read the screenshot automatically* | Claude call failed. The row's **Comments** column shows `Claude error: …` with the reason. For full detail open **Executions** → the run → **Read Screenshot with Claude**. Usual causes: wrong or revoked key, the header name isn't `x-api-key`, no credit on the Anthropic account, or a screenshot over 5 MB |
 | Google error `403` or *access blocked* | Sheets/Drive API not enabled (step 4.2), or your Gmail isn't a test user (step 4.3) |
 | Google error `redirect_uri_mismatch` | The redirect URI in step 4.4 must match exactly what n8n shows in the credential window |
 | Sheet error *Sheet with name Payments not found* | The tab must be named `Payments`, and the ID must be from the Google Sheet, not the uploaded .xlsx |
